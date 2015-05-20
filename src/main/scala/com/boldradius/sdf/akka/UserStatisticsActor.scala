@@ -10,7 +10,7 @@ class UserStatisticsActor extends Actor with ActorLogging {
   private var allRequests: List[Request] = List()
 
   // Aggregations
-  private var requestsPerBrowser: Map[String, Int]  = Map().withDefaultValue(0)
+  private var requestsPerBrowser: Map[String, Int] = Map().withDefaultValue(0)
 
   override def receive: Receive = {
     case SessionHandlingActor.Requests(requests) =>
@@ -18,7 +18,7 @@ class UserStatisticsActor extends Actor with ActorLogging {
       browserUsersAggregation(requests)
   }
 
-  def browserUsersAggregation(requests: List[Request]) = {
+  def browserUsersAggregation(requests: List[Request]): Map[String, Int] = {
     val newBrowserAggregation = requests.groupBy(_.browser).map { case (browser, reqs) =>
       browser -> reqs.size
     }
@@ -27,6 +27,7 @@ class UserStatisticsActor extends Actor with ActorLogging {
         val oldCount = requestsPerBrowser(browser)
         requestsPerBrowser += browser -> (oldCount + count)
     }
+    requestsPerBrowser
   }
 
 
