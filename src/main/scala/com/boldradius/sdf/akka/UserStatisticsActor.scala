@@ -11,11 +11,15 @@ class UserStatisticsActor extends Actor with ActorLogging {
 
   // Aggregations
   private var requestsPerBrowser: Map[String, Int] = Map().withDefaultValue(0)
+  type Hour = Int
+  type Minute = Int
+  private var requestsPerMinute: Map[(Hour, Minute), Int] = Map.empty.withDefaultValue(0)
 
   override def receive: Receive = {
     case SessionHandlingActor.Requests(requests) =>
       allRequests = allRequests ::: requests
       browserUsersAggregation(requests)
+      timeAggregation(requests)
   }
 
   def browserUsersAggregation(requests: List[Request]): Map[String, Int] = {
@@ -29,10 +33,6 @@ class UserStatisticsActor extends Actor with ActorLogging {
     }
     requestsPerBrowser
   }
-
-  type Hour = Int
-  type Minute = Int
-  private var requestsPerMinute: Map[(Hour, Minute), Int] = Map.empty.withDefaultValue(0)
 
   def timeAggregation(requests: List[Request]): Map[(Hour, Minute), Int] = {
     val newTimeAggregation: Map[(Hour, Minute), Int] =
