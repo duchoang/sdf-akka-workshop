@@ -17,12 +17,18 @@ class UserStatisticsActorSpec extends BaseAkkaSpec {
     }
 
     "Count percentage of requests by page" in {
-      val userStatsRef = TestActorRef(new UserStatisticsActor)
       val requests = List(testChromeRequest, testChromeRequest, testChromeRequest, testOtherPageRequest, testOtherPageRequest)
       val result = userStatsRef.underlyingActor.pageVisitsAggregation(requests)
       result shouldEqual Map("test.org" -> Percent(60), "test.org/index.html" -> Percent(40))
       val result2 = userStatsRef.underlyingActor.pageVisitsAggregation(testOtherPageRequest :: requests)
       result2 shouldEqual Map("test.org" -> Percent(50), "test.org/index.html" -> Percent(50))
+    }
+
+    "Provide top three landing pages and hits" in {
+      val requests = List(testChromeRequest, testChromeRequest, testChromeRequest, testOtherPageRequest, testOtherPageRequest,
+        testLandingPage1, testLandingPage1, testLandingPage2)
+      val result = userStatsRef.underlyingActor.topThreePages(requests)
+      result shouldEqual Map("test.org" -> 3, "test.org/index.html" -> 2, "test.org/contact.html" -> 2)
     }
 
     "Count number of requests per minute" in {
@@ -41,4 +47,7 @@ class UserStatisticsActorSpec extends BaseAkkaSpec {
   val testFirefoxRequest = testChromeRequest.copy(browser = "Firefox", timestamp = time2.getMillis)
   val testIERequest = testChromeRequest.copy(browser = "IE10", timestamp = time3.getMillis)
   val testOtherPageRequest = testChromeRequest.copy(url = "test.org/index.html")
+
+  val testLandingPage1 = testChromeRequest.copy(url = "test.org/contact.html")
+  val testLandingPage2 = testChromeRequest.copy(url = "test.org/about.html")
 }

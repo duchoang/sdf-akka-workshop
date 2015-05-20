@@ -1,6 +1,7 @@
 package com.boldradius.sdf.akka
 
 import akka.actor.{Props, Actor, ActorLogging}
+import com.boldradius.sdf.akka.SessionHandlingActor.Requests
 import com.boldradius.sdf.akka.UserStatisticsActor.Percent
 import org.joda.time.DateTime
 
@@ -16,13 +17,36 @@ class UserStatisticsActor extends Actor with ActorLogging {
   type Hour = Int
   type Minute = Int
   private var requestsPerMinute: Map[(Hour, Minute), Int] = Map.empty.withDefaultValue(0)
+  private var landingRequests: List[Request] = List.empty
+  private var sinkingRequests: List[Request] = List.empty
+  private var topThreeLandingPages: Map[String, Int] = Map.empty
+  private var topThreeSinkingPages: Map[String, Int] = Map.empty
 
   override def receive: Receive = {
-    case SessionHandlingActor.Requests(requests) =>
+    case Requests(requests) =>
+      val sortedRequests = requests.sortBy(req => req.timestamp)
+      landingRequests = landingRequests :+ sortedRequests.head
+      sinkingRequests = sinkingRequests :+ sortedRequests.last
       allRequests = allRequests ::: requests
+
+      topThreeLandingPages ++= topThreePages(landingRequests)
+      topThreeSinkingPages ++= topThreePages(sinkingRequests)
       browserUsersAggregation(requests)
       pageVisitsAggregation(allRequests)
       timeAggregation(requests)
+  }
+
+  /**
+   * The top three pages by hits from the passed requests.
+   * @param requests
+   * @return Map of page URL to Hits
+   */
+  def topThreePages(requests: List[Request]): Map[String, Int] = {
+    val pagesByHits = requests.groupBy(req => req.url).map {
+      case (url, reqs) => url -> reqs.size
+    }
+    val sortedByHits = pagesByHits.toSeq.sortBy { case (url, size) => size }
+    sortedByHits.takeRight(3).toMap
   }
 
   def browserUsersAggregation(requests: List[Request]): Map[String, Int] = {
