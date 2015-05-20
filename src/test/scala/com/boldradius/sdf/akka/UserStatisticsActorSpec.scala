@@ -19,35 +19,45 @@ class UserStatisticsActorSpec extends BaseAkkaSpec {
     "Count percentage of requests by page" in {
       val requests = List(testChromeRequest, testChromeRequest, testChromeRequest, testOtherPageRequest, testOtherPageRequest)
       val result = userStatsRef.underlyingActor.pageVisitsAggregation(requests)
-      result shouldEqual Map("test.org" -> Percent(60), "test.org/index.html" -> Percent(40))
+      result shouldEqual Map(url1 -> Percent(60), url3 -> Percent(40))
       val result2 = userStatsRef.underlyingActor.pageVisitsAggregation(testOtherPageRequest :: requests)
-      result2 shouldEqual Map("test.org" -> Percent(50), "test.org/index.html" -> Percent(50))
+      result2 shouldEqual Map(url1 -> Percent(50), url3 -> Percent(50))
     }
 
     "Provide top three landing pages and hits" in {
       val requests = List(testChromeRequest, testChromeRequest, testChromeRequest, testOtherPageRequest, testOtherPageRequest,
         testLandingPage1, testLandingPage1, testLandingPage2)
       val result = userStatsRef.underlyingActor.topThreePages(requests)
-      result shouldEqual Map("test.org" -> 3, "test.org/index.html" -> 2, "test.org/contact.html" -> 2)
+      result shouldEqual Map(url1 -> 3, url3 -> 2, url4 -> 2)
     }
 
     "Count number of requests per minute" in {
       val result = userStatsRef.underlyingActor.timeAggregation(
         List(testChromeRequest, testChromeRequest, testChromeRequest, testFirefoxRequest, testIERequest)
       )
-      result shouldEqual Map((14,20) -> 3, (14, 30) -> 2)
+      result shouldEqual Map((14,20) -> 3, (14, 30) -> 1, (14, 35) -> 1)
+    }
+
+    "Count total visit time per url" in {
+      val result = userStatsRef.underlyingActor.visitTimePerURLAggregation(
+        List(testChromeRequest, testFirefoxRequest, testIERequest)
+      )
+      result shouldEqual Map("/home" -> 600000, "/contact" -> 300000)
     }
   }
 
   val time1 = new DateTime(2015, 5, 20, 14, 20)
   val time2 = new DateTime(2015, 5, 20, 14, 30)
-  val time3 = new DateTime(2015, 5, 20, 14, 30)
+  val time3 = new DateTime(2015, 5, 20, 14, 35)
+  val url1 = "/home"
+  val url2 = "/contact"
+  val url3 = "/product"
+  val url4 = "/about"
 
-  val testChromeRequest = Request(42l, time1.getMillis, "test.org", "", "Chrome")
-  val testFirefoxRequest = testChromeRequest.copy(browser = "Firefox", timestamp = time2.getMillis)
-  val testIERequest = testChromeRequest.copy(browser = "IE10", timestamp = time3.getMillis)
-  val testOtherPageRequest = testChromeRequest.copy(url = "test.org/index.html")
-
-  val testLandingPage1 = testChromeRequest.copy(url = "test.org/contact.html")
+  val testChromeRequest = Request(42l, time1.getMillis, url1, "", "Chrome")
+  val testFirefoxRequest = testChromeRequest.copy(browser = "Firefox", timestamp = time2.getMillis, url = url2)
+  val testIERequest = testChromeRequest.copy(browser = "IE10", timestamp = time3.getMillis, url = url1)
+  val testOtherPageRequest = testChromeRequest.copy(url = url3)
+  val testLandingPage1 = testChromeRequest.copy(url = url4)
   val testLandingPage2 = testChromeRequest.copy(url = "test.org/about.html")
 }
