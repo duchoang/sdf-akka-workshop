@@ -11,7 +11,8 @@ class UserStatisticsActor extends Actor with ActorLogging {
   private var allRequests: List[Request] = List()
 
   // Aggregations
-  private var requestsPerBrowser: Map[String, Int] = Map().withDefaultValue(0)
+  type UserId = Long
+  private var requestsPerBrowser: Map[String, Map[UserId, Int]] = Map.empty.withDefaultValue(Map.empty)
   private var requestsPerPage: Map[String, Percent] = Map.empty
   type Hour = Int
   type Minute = Int
@@ -22,22 +23,52 @@ class UserStatisticsActor extends Actor with ActorLogging {
   override def receive: Receive = {
     case SessionHandlingActor.Requests(requests) =>
       allRequests = allRequests ::: requests
+
       browserUsersAggregation(requests)
+
+
       pageVisitsAggregation(allRequests)
       timeAggregation(requests)
   }
 
-  // Number of requests per browser
-  def browserUsersAggregation(requests: List[Request]): Map[String, Int] = {
-    val newBrowserAggregation = requests.groupBy(_.browser).map { case (browser, reqs) =>
-      browser -> reqs.size
-    }
+  def browserUsersAggregation(requests: List[Request]): Unit = {
+    requests.groupBy(_.browser).foreach { case (browser, reqs) =>
+      val newMap: Map[UserId, List[Request]] = reqs.groupBy(_.sessionId)
+      val oldMap: Map[UserId, Int]  = requestsPerBrowser(browser)
 
-    newBrowserAggregation.foreach { case (browser, count) =>
-        val oldCount = requestsPerBrowser(browser)
-        requestsPerBrowser += browser -> (oldCount + count)
+      // combine 2 mapping to the new one
+      val allUserId: Set[UserId] = oldMap.keySet ++ newMap.keySet
+      val combineMap: Map[UserId, Int] = allUserId.map(userId => {
+        val newCount = newMap.getOrElse(userId, List.empty).size
+        val oldCount = oldMap.getOrElse(userId, 0)
+        userId -> (oldCount + newCount)
+      }).toMap
+
+      requestsPerBrowser += browser -> combineMap
     }
-    requestsPerBrowser
+  }
+
+  // Number of requests per browser
+  def requestsPerBrowserAggregation: Map[String, Int] = {
+    requestsPerBrowser.map {
+      case (browser, requestsPerUser) =>
+        browser -> requestsPerUser.map(_._2).sum
+    }
+  }
+
+  // Number of users per browser
+  def usersPerBrowserAggregation: Map[String, Int] = {
+    requestsPerBrowser.map {
+      case (browser, requestsPerUser) =>
+        browser -> requestsPerUser.count(tuple => tuple._2 > 0)
+    }
+  }
+
+  // Find top 2 browser
+  def getTopBrowser: (Option[(String, Int)], Option[(String, Int)]) = {
+    val usersPerBrowser: Map[String, Int] = usersPerBrowserAggregation
+    val sorted = usersPerBrowser.toList.sortBy(tuple => tuple._2)
+    (sorted.lastOption, sorted.init.lastOption)
   }
 
   // Page visit distribution

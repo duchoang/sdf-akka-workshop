@@ -10,9 +10,10 @@ class UserStatisticsActorSpec extends BaseAkkaSpec {
 
   "Aggregation functions" should {
     "Count number of requests by browser" in {
-      val result = userStatsRef.underlyingActor.browserUsersAggregation(
+      userStatsRef.underlyingActor.browserUsersAggregation(
         List(testChromeRequest, testChromeRequest, testChromeRequest, testFirefoxRequest, testIERequest)
       )
+      val result = userStatsRef.underlyingActor.requestsPerBrowserAggregation
       result shouldEqual Map("Chrome" -> 3, "Firefox" -> 1, "IE10" -> 1)
     }
 
@@ -38,6 +39,18 @@ class UserStatisticsActorSpec extends BaseAkkaSpec {
       )
       result shouldEqual Map("/home" -> 600000, "/contact" -> 300000)
     }
+
+    "Get top browsers" in {
+      val userStatsRef2 = TestActorRef(new UserStatisticsActor)
+      userStatsRef2.underlyingActor.browserUsersAggregation(
+        List(testChromeRequest, testChromeRequest, testChromeRequest, testFirefoxRequest, testIERequest, testChromeRequest2)
+      )
+      val result: Map[String, Int] = userStatsRef2.underlyingActor.usersPerBrowserAggregation
+      result shouldEqual Map("IE10" -> 1, "Chrome" -> 2, "Firefox" -> 1)
+
+      val top = userStatsRef2.underlyingActor.getTopBrowser
+      top shouldEqual (Some(("Chrome", 2)), Some(("Firefox", 1)))
+    }
   }
 
   val time1 = new DateTime(2015, 5, 20, 14, 20)
@@ -51,4 +64,5 @@ class UserStatisticsActorSpec extends BaseAkkaSpec {
   val testFirefoxRequest = testChromeRequest.copy(browser = "Firefox", timestamp = time2.getMillis, url = url2)
   val testIERequest = testChromeRequest.copy(browser = "IE10", timestamp = time3.getMillis, url = url1)
   val testOtherPageRequest = testChromeRequest.copy(url = url3)
+  val testChromeRequest2 = testChromeRequest.copy(sessionId = 10l)
 }
