@@ -11,12 +11,15 @@ class RequestConsumer extends Actor with ActorLogging {
 
   private var sessionHandlers = Map.empty[Long, ActorRef]
 
+  val statsActor = context.actorOf(UserStatisticsActor.props)
+
   def receive: Receive = {
     case request: Request => handleRequest(request)
 
-    case InactiveSession(id) =>
+    case InactiveSession(id, requests) =>
       context.stop(sessionHandlers(id))
       sessionHandlers -= id
+      statsActor ! requests
   }
 
   private def handleRequest(request: Request) = {

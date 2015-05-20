@@ -19,13 +19,13 @@ class SessionHandlingActor(id: Long) extends FSM[SessionState, SessionData] with
 
   when(Active) {
     case Event(request: Request, requests: Requests) =>
-      setTimer("timeout", InactiveSession(id), timeout)
+      setTimer("timeout", InactiveSession(id, requests), timeout)
       log.debug(s"[Active] Actor $id received this $request")
       stay() using requests.copy(list = request :: requests.list)
 
-    case Event(InactiveSession(_), _) =>
+    case Event(InactiveSession(_), requests: Requests) =>
       log.debug(s"[Inactive] after timeout $timeout, send InactiveSession($id) Msg to parent")
-      context.parent ! InactiveSession(id)
+      context.parent ! InactiveSession(id, requests)
       goto(Inactive)
   }
 
@@ -47,7 +47,7 @@ object SessionHandlingActor {
   case object Active extends SessionState
   case object Inactive extends SessionState
 
-  case class InactiveSession(id: Long)
+  case class InactiveSession(id: Long, requests: Requests)
 
   sealed trait SessionData
   case class Requests(list: List[Request]) extends SessionData
