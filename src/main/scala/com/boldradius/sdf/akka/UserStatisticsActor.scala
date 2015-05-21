@@ -17,7 +17,8 @@ class UserStatisticsActor extends Actor with ActorLogging {
 
   // Aggregations
   private var requestsPerBrowser: Map[String, Int] = Map.empty.withDefaultValue(0)
-  private var requestsPerPage: Map[String, Percent] = Map.empty
+  private var requestsPerPage: Map[String, Int] = Map.empty.withDefaultValue(0)
+  private var percentPerPage: Map[String, Percent] = Map.empty
   private var requestsPerMinute: Map[(Hour, Minute), Int] = Map.empty.withDefaultValue(0)
   private var landingRequests: List[Request] = List.empty
   private var sinkingRequests: List[Request] = List.empty
@@ -33,6 +34,7 @@ class UserStatisticsActor extends Actor with ActorLogging {
 
   override def receive: Receive = {
     case Requests(requests) =>
+      throw new IllegalArgumentException("requests")
       val sortedRequests = requests.sortBy(req => req.timestamp)
 
       landingRequests = landingRequests :+ sortedRequests.head
@@ -58,7 +60,9 @@ class UserStatisticsActor extends Actor with ActorLogging {
       requestsPerBrowser ++= accumulateMapCount(requestsPerBrowser,
         all(sortedRequests, UserStatisticsActor.groupByBrowser, UserStatisticsActor.mapToCount))
 
-      pageVisitsAggregation(allRequests)
+      requestsPerPage ++= accumulateMapCount(requestsPerPage,
+        all(sortedRequests, UserStatisticsActor.groupByUrl, UserStatisticsActor.mapToCount))
+      percentPerPage ++= requestsPerPage.mapValues(size => sizeToPercent(size, requestsPerPage.size))
 
 //      timeAggregation(sortedRequests)
   }
@@ -99,15 +103,6 @@ class UserStatisticsActor extends Actor with ActorLogging {
           groupBy: (Request) => K,
           mapTo: ((K, List[Request])) => (K, V)): Map[K, V] = {
     requests.groupBy(groupBy).map(mapTo)
-  }
-
-  // Page visit distribution
-  def pageVisitsAggregation(requests: List[Request]): Map[String, Percent] = {
-    val totalCount = requests.size.toDouble
-    requestsPerPage ++= requests.groupBy(_.url).map { case (url, reqs) =>
-      url -> Percent(reqs.size / totalCount * 100)
-    }
-    requestsPerPage
   }
 
   // Number of requests per minute of the day
@@ -178,6 +173,10 @@ object UserStatisticsActor {
   }
   val mapToUserCount: ((String, List[Request])) => (String, Int) = {
     case (groupName, reqs) => groupName -> reqs.groupBy(_.sessionId).size
+  }
+
+  def sizeToPercent(size: Int, total: Int): Percent = {
+    Percent(size.toDouble / total * 100)
   }
 
   val mapToCountByTime: ((Hour, Minute), List[Request]) => ((Hour, Minute), Int) = {

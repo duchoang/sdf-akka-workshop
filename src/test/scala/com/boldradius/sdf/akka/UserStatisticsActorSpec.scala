@@ -17,10 +17,12 @@ class UserStatisticsActorSpec extends BaseAkkaSpec {
 
     "Count percentage of requests by page" in {
       val requests = List(testChromeRequest, testChromeRequest, testChromeRequest, testOtherPageRequest, testOtherPageRequest)
-      val result = userStatsRef.underlyingActor.pageVisitsAggregation(requests)
-      result shouldEqual Map(url1 -> Percent(60), url3 -> Percent(40))
-      val result2 = userStatsRef.underlyingActor.pageVisitsAggregation(testOtherPageRequest :: requests)
-      result2 shouldEqual Map(url1 -> Percent(50), url3 -> Percent(50))
+      val result = userStatsRef.underlyingActor.all(requests, UserStatisticsActor.groupByUrl, UserStatisticsActor.mapToCount)
+      val newRes = result.mapValues(size => UserStatisticsActor.sizeToPercent(size, requests.size))
+      newRes shouldEqual Map(url1 -> Percent(60), url3 -> Percent(40))
+      val result2 = userStatsRef.underlyingActor.all(testOtherPageRequest :: requests, UserStatisticsActor.groupByUrl, UserStatisticsActor.mapToCount)
+      val newRes2 = result2.mapValues(size => UserStatisticsActor.sizeToPercent(size, requests.size + 1))
+      newRes2 shouldEqual Map(url1 -> Percent(50), url3 -> Percent(50))
     }
 
     "Provide top three landing pages and hits" in {
