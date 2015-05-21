@@ -10,10 +10,8 @@ class UserStatisticsActorSpec extends BaseAkkaSpec {
 
   "Aggregation functions" should {
     "Count number of requests by browser" in {
-      userStatsRef.underlyingActor.browserAggregation(
-        List(testChromeRequest, testChromeRequest, testChromeRequest, testFirefoxRequest, testIERequest)
-      )
-      val result = userStatsRef.underlyingActor.requestsPerBrowserAggregation
+      val requests = List(testChromeRequest, testChromeRequest, testChromeRequest, testFirefoxRequest, testIERequest)
+      val result = userStatsRef.underlyingActor.all(requests, UserStatisticsActor.groupByBrowser, UserStatisticsActor.mapToCount)
       result shouldEqual Map("Chrome" -> 3, "Firefox" -> 1, "IE10" -> 1)
     }
 
@@ -46,33 +44,18 @@ class UserStatisticsActorSpec extends BaseAkkaSpec {
       result shouldEqual Map("/home" -> 600000, "/contact" -> 300000)
     }
 
-    "Get top browsers new" in {
+    "Get top browsers" in {
       val userStatsRef2 = TestActorRef(new UserStatisticsActor)
       val requests = List(testChromeRequest, testChromeRequest, testChromeRequest, testFirefoxRequest, testFirefoxRequest2, testIERequest, testChromeRequest2)
-      val result = userStatsRef2.underlyingActor.top(2,requests, UserStatisticsActor.groupByBrowser, UserStatisticsActor.mapToUserCount)
+      val result = userStatsRef2.underlyingActor.top(2, requests, UserStatisticsActor.groupByBrowser, UserStatisticsActor.mapToUserCount)
       result shouldEqual Map("Chrome" -> 2, "Firefox" -> 2)
     }
 
-    "Get top browsers" in {
+    "Get top referrers" in {
       val userStatsRef2 = TestActorRef(new UserStatisticsActor)
-      userStatsRef2.underlyingActor.browserAggregation(
-        List(testChromeRequest, testChromeRequest, testChromeRequest, testFirefoxRequest, testIERequest, testChromeRequest2)
-      )
-      val result: Map[String, Int] = userStatsRef2.underlyingActor.usersPerBrowserAggregation
-      result shouldEqual Map("IE10" -> 1, "Chrome" -> 2, "Firefox" -> 1)
-
-      val top = userStatsRef2.underlyingActor.getTopBrowser(2)
-      top shouldEqual List(("Chrome", 2), ("IE10", 1))
-    }
-
-    "Get top referrer" in {
-      val userStatsRef3 = TestActorRef(new UserStatisticsActor)
-      userStatsRef3.underlyingActor.referrerAggregation(
-        List(testChromeRequest, testFirefoxRequest, testIERequest, testChromeRequest2, testFirefoxRequest2, testChromeRequest3)
-      )
-      val result = userStatsRef3.underlyingActor.getTopReferrer(3)
-      result shouldEqual List(("google", 3), ("facebook", 2), ("microsoft", 1))
-
+      val requests = List(testChromeRequest, testFirefoxRequest, testIERequest, testChromeRequest2, testFirefoxRequest2, testChromeRequest3)
+      val result = userStatsRef2.underlyingActor.top(2, requests, UserStatisticsActor.groupByReferrer, UserStatisticsActor.mapToUserCount)
+      result shouldEqual Map("google" -> 3, "facebook" -> 2)
     }
   }
 
