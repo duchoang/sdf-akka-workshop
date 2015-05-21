@@ -30,7 +30,7 @@ class UserStatisticsActorSpec extends BaseAkkaSpec {
       result shouldEqual Map(url1 -> 3, url3 -> 2, url4 -> 2)
     }
 
-    "Count number of requests per minute" in {
+    /*"Count number of requests per minute" in {
       val result = userStatsRef.underlyingActor.timeAggregation(
         List(testChromeRequest, testChromeRequest, testChromeRequest, testFirefoxRequest, testIERequest)
       )
@@ -42,7 +42,7 @@ class UserStatisticsActorSpec extends BaseAkkaSpec {
         List(testChromeRequest, testFirefoxRequest, testIERequest)
       )
       result shouldEqual Map("/home" -> 600000, "/contact" -> 300000)
-    }
+    }*/
 
     "Get top browsers" in {
       val userStatsRef2 = TestActorRef(new UserStatisticsActor)
