@@ -1,6 +1,7 @@
 package com.boldradius.sdf.akka
 
 import akka.actor._
+import com.boldradius.sdf.akka.EmailActor.StatsActorTerminated
 import com.boldradius.sdf.akka.SessionHandlingActor.InactiveSession
 
 object RequestConsumer {
@@ -9,14 +10,26 @@ object RequestConsumer {
 
 class RequestConsumer extends Actor with ActorLogging {
 
+  override val supervisorStrategy = {
+    OneForOneStrategy(maxNrOfRetries = 2)(super.supervisorStrategy.decider)
+  }
+
   private var sessionHandlers = Map.empty[Long, ActorRef]
+
+  val statsActor = context.actorOf(UserStatisticsActor.props, "stats-actor")
+  context.watch(statsActor)
+  val emailActor = context.actorOf(EmailActor.props, "email-actor")
 
   def receive: Receive = {
     case request: Request => handleRequest(request)
 
-    case InactiveSession(id) =>
+    case InactiveSession(id, requests) =>
       context.stop(sessionHandlers(id))
       sessionHandlers -= id
+      statsActor ! requests
+
+    case Terminated(ex) =>
+      emailActor ! StatsActorTerminated(ex.toString())
   }
 
   private def handleRequest(request: Request) = {
