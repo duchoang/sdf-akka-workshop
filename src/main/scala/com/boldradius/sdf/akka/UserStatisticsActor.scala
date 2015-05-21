@@ -73,7 +73,7 @@ class UserStatisticsActor extends Actor with ActorLogging {
   }
 
   /**
-   * The top pages from the passed requests.
+   * The top x amount of mapped results from the passed requests.
    * @return Map of page URL to Hits
    */
   def top(number: Int, requests: List[Request],
@@ -91,6 +91,10 @@ class UserStatisticsActor extends Actor with ActorLogging {
     getMax(all(requests, groupBy, mapTo))
   }
 
+  /**
+   * All requests grouped by the specified request parameter and mapped to the result.
+   * @return
+   */
   def all(requests: List[Request],
           groupBy: (Request) => String,
           mapTo: ((String, List[Request])) => (String, Int)): Map[String, Int] = {
@@ -159,10 +163,10 @@ object UserStatisticsActor {
   val groupByReferrer: Request => String = req => req.referrer
 
   val mapToCount: ((String, List[Request])) => (String, Int) = {
-    case (name, reqs) => name -> reqs.size
+    case (groupName, reqs) => groupName -> reqs.size
   }
   val mapToUserCount: ((String, List[Request])) => (String, Int) = {
-    case (browser, reqs) => browser -> reqs.groupBy(_.sessionId).size
+    case (groupName, reqs) => groupName -> reqs.groupBy(_.sessionId).size
   }
 
   // complexity O(count * size(list))
