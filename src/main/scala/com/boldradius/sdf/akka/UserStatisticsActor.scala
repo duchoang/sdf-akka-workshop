@@ -5,6 +5,8 @@ import com.boldradius.sdf.akka.SessionHandlingActor.Requests
 import com.boldradius.sdf.akka.UserStatisticsActor.Percent
 import org.joda.time.DateTime
 
+import scala.annotation.tailrec
+
 //case class Request(sessionId: Long, timestamp: Long, url: String, referrer: String, browser: String)
 
 class UserStatisticsActor extends Actor with ActorLogging {
@@ -20,10 +22,12 @@ class UserStatisticsActor extends Actor with ActorLogging {
   private var requestsPerMinute: Map[(Hour, Minute), Int] = Map.empty.withDefaultValue(0)
   private var landingRequests: List[Request] = List.empty
   private var sinkingRequests: List[Request] = List.empty
-  private var topThreeLandingPages: Map[String, Int] = Map.empty
-  private var topThreeSinkingPages: Map[String, Int] = Map.empty
+  private var topLandingPages: Map[String, Int] = Map.empty
+  private var topSinkingPages: Map[String, Int] = Map.empty
 
   private var totalVisitTimePerURL: Map[String, Long] = Map.empty.withDefaultValue(0)
+
+  val topPagesCount: Int = context.system.settings.config.getInt("akka-workshop.stats-actor.top-pages")
 
   override def receive: Receive = {
     case Requests(requests) =>
@@ -32,8 +36,8 @@ class UserStatisticsActor extends Actor with ActorLogging {
       sinkingRequests = sinkingRequests :+ sortedRequests.last
       allRequests = allRequests ::: requests
 
-      topThreeLandingPages ++= topThreePages(landingRequests)
-      topThreeSinkingPages ++= topThreePages(sinkingRequests)
+      topLandingPages ++= topPages(topPagesCount, landingRequests)
+      topSinkingPages ++= topPages(topPagesCount, sinkingRequests)
 
       browserUsersAggregation(requests)
 
@@ -61,16 +65,23 @@ class UserStatisticsActor extends Actor with ActorLogging {
   }
 
   /**
-   * The top three pages by hits from the passed requests.
-   * @param requests
+   * The top pages by hits from the passed requests.
    * @return Map of page URL to Hits
    */
-  def topThreePages(requests: List[Request]): Map[String, Int] = {
+  def topPages(number: Int, requests: List[Request]): Map[String, Int] = {
+    @tailrec
+    def getMax(workingMap: Map[String, Int], returnMap: Map[String, Int] = Map.empty): Map[String, Int] = workingMap match {
+      case map if workingMap.isEmpty => returnMap
+      case map if returnMap.size == number => returnMap
+      case map =>
+        val currentMax @ (maxUrl, _) = map.maxBy { case (_, size) => size }
+        getMax(map - maxUrl, returnMap + currentMax)
+    }
+
     val pagesByHits = requests.groupBy(req => req.url).map {
       case (url, reqs) => url -> reqs.size
     }
-    val sortedByHits = pagesByHits.toSeq.sortBy { case (url, size) => size }
-    sortedByHits.takeRight(3).toMap
+    getMax(pagesByHits)
   }
 
   // Number of requests per browser

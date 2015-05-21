@@ -23,7 +23,7 @@ class SessionHandlingActor(id: Long) extends FSM[SessionState, SessionData] with
       log.debug(s"[Active] Actor $id received this $request")
       stay() using requests.copy(list = request :: requests.list)
 
-    case Event(InactiveSession(_), requests: Requests) =>
+    case Event(InactiveSession(_, _), requests: Requests) =>
       log.debug(s"[Inactive] after timeout $timeout, send InactiveSession($id) Msg to parent")
       context.parent ! InactiveSession(id, requests)
       goto(Inactive)
