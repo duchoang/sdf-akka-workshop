@@ -14,9 +14,7 @@ class UserStatisticsActor extends Actor with ActorLogging {
   private var allRequests: List[Request] = List()
 
   // Aggregations
-  type UserId = Long
-  private var requestsPerBrowser: Map[String, Map[UserId, Int]] = Map.empty.withDefaultValue(Map.empty)
-  private var requestsPerReferrer: Map[String, Map[UserId, Int]] = Map.empty.withDefaultValue(Map.empty)
+  private var requestsPerBrowser: Map[String, Int] = Map.empty
   private var requestsPerPage: Map[String, Percent] = Map.empty
   type Hour = Int
   type Minute = Int
@@ -25,8 +23,8 @@ class UserStatisticsActor extends Actor with ActorLogging {
   private var sinkingRequests: List[Request] = List.empty
   private var topLandingPages: Map[String, Int] = Map.empty
   private var topSinkingPages: Map[String, Int] = Map.empty
-  private var topBrowsers: Map[String, Int] = Map.empty
-  private var topReferrers: Map[String, Int] = Map.empty
+  private var topBrowsersByUser: Map[String, Int] = Map.empty.withDefaultValue(0)
+  private var topReferrersByUser: Map[String, Int] = Map.empty.withDefaultValue(0)
 
   private var totalVisitTimePerURL: Map[String, Long] = Map.empty.withDefaultValue(0)
 
@@ -36,25 +34,37 @@ class UserStatisticsActor extends Actor with ActorLogging {
   override def receive: Receive = {
     case Requests(requests) =>
       val sortedRequests = requests.sortBy(req => req.timestamp)
+
       landingRequests = landingRequests :+ sortedRequests.head
       sinkingRequests = sinkingRequests :+ sortedRequests.last
-      allRequests = allRequests ::: requests
+      allRequests = allRequests ::: sortedRequests
 
       topLandingPages ++= top(topPagesCount, landingRequests, UserStatisticsActor.groupByUrl, UserStatisticsActor.mapToCount)
       topSinkingPages ++= top(topPagesCount, sinkingRequests, UserStatisticsActor.groupByUrl, UserStatisticsActor.mapToCount)
-      topBrowsers ++= top(topCounts, allRequests, UserStatisticsActor.groupByBrowser, UserStatisticsActor.mapToUserCount)
-      topReferrers ++= top(topCounts, allRequests, UserStatisticsActor.groupByReferrer, UserStatisticsActor.mapToUserCount)
 
-      browserAggregation(requests)
-      referrerAggregation(requests)
 
+      def accumulateMapCount(oldMap: Map[String, Int], newMap: Map[String, Int]): Map[String, Int] = {
+        newMap map {
+          case (key, value) => key -> (oldMap(key) + value)
+        }
+      }
+
+      topBrowsersByUser ++= accumulateMapCount(topBrowsersByUser,
+        top(topCounts, sortedRequests, UserStatisticsActor.groupByBrowser, UserStatisticsActor.mapToUserCount))
+
+      topReferrersByUser ++= accumulateMapCount(topReferrersByUser,
+        top(topCounts, sortedRequests, UserStatisticsActor.groupByReferrer, UserStatisticsActor.mapToUserCount))
+
+      requestsPerBrowser ++= accumulateMapCount(requestsPerBrowser,
+        all(sortedRequests, UserStatisticsActor.groupByBrowser, UserStatisticsActor.mapToCount))
 
       pageVisitsAggregation(allRequests)
-      timeAggregation(requests)
+
+      timeAggregation(sortedRequests)
   }
 
   def generateStats: String = {
-    val reqPerBrowser = s"Number of requests per browser:\n${requestsPerBrowserAggregation.toList.mkString("\n")}"
+    val reqPerBrowser = s"Number of requests per browser:\n${requestsPerBrowser.toList.mkString("\n")}"
     val ((busyHour, busyMin), countReqs) = requestsPerMinute.maxBy(tuple => tuple._2)
     val busyTime = s"Busiest time of the day: $busyHour:$busyMin with #$countReqs requests"
     val reqPerPage = s"Page visit distribution:\n${requestsPerPage.toList.mkString("\n")}"
@@ -62,39 +72,12 @@ class UserStatisticsActor extends Actor with ActorLogging {
     ""
   }
 
-  def browserAggregation(requests: List[Request]): Unit = {
-    val newReqPerBrowsers = browserOrReferrerAggregation(requests, req => req.browser, requestsPerBrowser)
-    requestsPerBrowser = requestsPerBrowser ++ newReqPerBrowsers
-  }
-
-  def referrerAggregation(requests: List[Request]): Unit = {
-    val newReferPerBrowser = browserOrReferrerAggregation(requests, req => req.referrer, requestsPerReferrer)
-    requestsPerReferrer = requestsPerReferrer ++ newReferPerBrowser
-  }
-
-  def browserOrReferrerAggregation(requests: List[Request], groupByFunc: Request => String, oldMapping: Map[String, Map[UserId, Int]]): Map[String, Map[UserId, Int]] = {
-    requests.groupBy(groupByFunc).map { case (key, reqs) =>
-      val newMap: Map[UserId, List[Request]] = reqs.groupBy(_.sessionId)
-      val oldMap: Map[UserId, Int] = oldMapping(key)
-
-      // combine 2 mapping to the new one
-      val allUserId: Set[UserId] = oldMap.keySet ++ newMap.keySet
-      val combineMap: Map[UserId, Int] = allUserId.map(userId => {
-        val newCount = newMap.getOrElse(userId, List.empty).size
-        val oldCount = oldMap.getOrElse(userId, 0)
-        userId -> (oldCount + newCount)
-      }).toMap
-
-      key -> combineMap
-    }
-  }
-
   /**
    * The top pages from the passed requests.
    * @return Map of page URL to Hits
    */
   def top(number: Int, requests: List[Request],
-               groupBy: (Request) => String, 
+               groupBy: (Request) => String,
                mapTo: ((String, List[Request])) => (String, Int)): Map[String, Int] = {
     @tailrec
     def getMax(workingMap: Map[String, Int], returnMap: Map[String, Int] = Map.empty): Map[String, Int] = workingMap match {
@@ -105,61 +88,13 @@ class UserStatisticsActor extends Actor with ActorLogging {
         getMax(map - maxUrl, returnMap + currentMax)
     }
 
-    val pages = requests.groupBy(groupBy).map(mapTo)
-    getMax(pages)
+    getMax(all(requests, groupBy, mapTo))
   }
 
-  // Number of requests per browser
-  def requestsPerBrowserAggregation: Map[String, Int] = {
-    requestsPerBrowser.map {
-      case (browser, requestsPerUser) =>
-        browser -> requestsPerUser.map(_._2).sum
-    }
-  }
-
-  // Number of users per browser
-  def usersPerBrowserAggregation: Map[String, Int] = {
-    requestsPerBrowser.map {
-      case (browser, requestsPerUser) =>
-        browser -> requestsPerUser.count(tuple => tuple._2 > 0)
-    }
-  }
-
-  // Find top 2 browser
-  def getTopBrowser(count: Int): List[(String, Int)] = {
-    val usersPerBrowser: List[(String, Int)] = usersPerBrowserAggregation.toList
-    val greaterThan = (tuple1: (String, Int), tuple2: (String, Int)) => tuple1._2 > tuple2._2
-    getMultiMax(usersPerBrowser, count, greaterThan)
-  }
-
-  // complexity O(count * size(list))
-  def getMultiMax[A](list: List[A], count: Int, greaterThan: (A, A) => Boolean): List[A] = {
-
-    def addToSortedList(elem: A, descendingList: List[A]): List[A] = descendingList match {
-      case head :: tail =>
-        if (greaterThan(elem, head)) elem :: head :: tail
-        else head :: addToSortedList(elem, tail)
-      case Nil => List(elem)
-    }
-
-    list.foldLeft(List.empty[A])((result, elem) => {
-      val newResult = addToSortedList(elem, result)
-      if (newResult.size > count)
-        newResult.init
-      else
-        newResult
-    })
-  }
-
-  // Find top 2 referrer
-  def getTopReferrer(count: Int): List[(String, Int)] = {
-    val usersPerReferrer: List[(String, Int)] = requestsPerReferrer.toList.map {
-      case (referrer, requestsPerUser) =>
-        referrer -> requestsPerUser.count(tuple => tuple._2 > 0)
-    }
-
-    val greaterThan = (tuple1: (String, Int), tuple2: (String, Int)) => tuple1._2 > tuple2._2
-    getMultiMax(usersPerReferrer, count, greaterThan)
+  def all(requests: List[Request],
+          groupBy: (Request) => String,
+          mapTo: ((String, List[Request])) => (String, Int)): Map[String, Int] = {
+    requests.groupBy(groupBy).map(mapTo)
   }
 
   // Page visit distribution
@@ -228,5 +163,24 @@ object UserStatisticsActor {
   }
   val mapToUserCount: ((String, List[Request])) => (String, Int) = {
     case (browser, reqs) => browser -> reqs.groupBy(_.sessionId).size
+  }
+
+  // complexity O(count * size(list))
+  def getMultiMax[A](list: List[A], count: Int, greaterThan: (A, A) => Boolean): List[A] = {
+
+    def addToSortedList(elem: A, descendingList: List[A]): List[A] = descendingList match {
+      case head :: tail =>
+        if (greaterThan(elem, head)) elem :: head :: tail
+        else head :: addToSortedList(elem, tail)
+      case Nil => List(elem)
+    }
+
+    list.foldLeft(List.empty[A])((result, elem) => {
+      val newResult = addToSortedList(elem, result)
+      if (newResult.size > count)
+        newResult.init
+      else
+        newResult
+    })
   }
 }
