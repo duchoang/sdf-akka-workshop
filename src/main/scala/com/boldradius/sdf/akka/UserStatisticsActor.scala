@@ -48,6 +48,15 @@ class UserStatisticsActor extends Actor with ActorLogging {
       timeAggregation(requests)
   }
 
+  def generateStats: String = {
+    val reqPerBrowser = s"Number of requests per browser:\n${requestsPerBrowserAggregation.toList.mkString("\n")}"
+    val ((busyHour, busyMin), countReqs) = requestsPerMinute.maxBy(tuple => tuple._2)
+    val busyTime = s"Busiest time of the day: $busyHour:$busyMin with #$countReqs requests"
+    val reqPerPage = s"Page visit distribution:\n${requestsPerPage.toList.mkString("\n")}"
+    val visitTimePerPage = s"Total visit time per page:\n${totalVisitTimePerURL.mkString("\n")}"
+    ""
+  }
+
   def browserAggregation(requests: List[Request]): Unit = {
     val newReqPerBrowsers = browserOrReferrerAggregation(requests, req => req.browser, requestsPerBrowser)
     requestsPerBrowser = requestsPerBrowser ++ newReqPerBrowsers
