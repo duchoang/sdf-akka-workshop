@@ -25,10 +25,13 @@ class UserStatisticsActor extends Actor with ActorLogging {
   private var sinkingRequests: List[Request] = List.empty
   private var topLandingPages: Map[String, Int] = Map.empty
   private var topSinkingPages: Map[String, Int] = Map.empty
+  private var topBrowsers: Map[String, Int] = Map.empty
+  private var topReferrers: Map[String, Int] = Map.empty
 
   private var totalVisitTimePerURL: Map[String, Long] = Map.empty.withDefaultValue(0)
 
   val topPagesCount: Int = context.system.settings.config.getInt("akka-workshop.stats-actor.top-pages")
+  val topCounts: Int = context.system.settings.config.getInt("akka-workshop.stats-actor.top-counts")
 
   override def receive: Receive = {
     case Requests(requests) =>
@@ -37,8 +40,10 @@ class UserStatisticsActor extends Actor with ActorLogging {
       sinkingRequests = sinkingRequests :+ sortedRequests.last
       allRequests = allRequests ::: requests
 
-      topLandingPages ++= topPages(topPagesCount, landingRequests)
-      topSinkingPages ++= topPages(topPagesCount, sinkingRequests)
+      topLandingPages ++= top(topPagesCount, landingRequests, UserStatisticsActor.groupByUrl, UserStatisticsActor.mapToCount)
+      topSinkingPages ++= top(topPagesCount, sinkingRequests, UserStatisticsActor.groupByUrl, UserStatisticsActor.mapToCount)
+      topBrowsers ++= top(topCounts, allRequests, UserStatisticsActor.groupByBrowser, UserStatisticsActor.mapToUserCount)
+      topReferrers ++= top(topCounts, allRequests, UserStatisticsActor.groupByReferrer, UserStatisticsActor.mapToUserCount)
 
       browserAggregation(requests)
       referrerAggregation(requests)
@@ -76,10 +81,12 @@ class UserStatisticsActor extends Actor with ActorLogging {
   }
 
   /**
-   * The top pages by hits from the passed requests.
+   * The top pages from the passed requests.
    * @return Map of page URL to Hits
    */
-  def topPages(number: Int, requests: List[Request]): Map[String, Int] = {
+  def top(number: Int, requests: List[Request],
+               groupBy: (Request) => String, 
+               mapTo: ((String, List[Request])) => (String, Int)): Map[String, Int] = {
     @tailrec
     def getMax(workingMap: Map[String, Int], returnMap: Map[String, Int] = Map.empty): Map[String, Int] = workingMap match {
       case map if workingMap.isEmpty => returnMap
@@ -89,10 +96,8 @@ class UserStatisticsActor extends Actor with ActorLogging {
         getMax(map - maxUrl, returnMap + currentMax)
     }
 
-    val pagesByHits = requests.groupBy(req => req.url).map {
-      case (url, reqs) => url -> reqs.size
-    }
-    getMax(pagesByHits)
+    val pages = requests.groupBy(groupBy).map(mapTo)
+    getMax(pages)
   }
 
   // Number of requests per browser
@@ -183,5 +188,16 @@ object UserStatisticsActor {
 
   case class Percent(percent: Double) {
     override def toString = f"$percent%.2f"
+  }
+
+  val groupByUrl: Request => String = req => req.url
+  val groupByBrowser: Request => String = req => req.browser
+  val groupByReferrer: Request => String = req => req.referrer
+
+  val mapToCount: ((String, List[Request])) => (String, Int) = {
+    case (name, reqs) => name -> reqs.size
+  }
+  val mapToUserCount: ((String, List[Request])) => (String, Int) = {
+    case (browser, reqs) => browser -> reqs.groupBy(_.sessionId).size
   }
 }
