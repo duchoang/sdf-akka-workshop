@@ -46,18 +46,6 @@ class UserStatisticsActor extends Actor with ActorLogging {
     topLandingPages ++= top(topPagesCount, landingRequests, UserStatisticsActor.groupByUrl, UserStatisticsActor.mapToCount)
     topSinkingPages ++= top(topPagesCount, sinkingRequests, UserStatisticsActor.groupByUrl, UserStatisticsActor.mapToCount)
 
-
-    def accumulateMapCount[K](oldMap: Map[K, Int], newMap: Map[K, Int]): Map[K, Int] = {
-      newMap map {
-        case (key, value) => key -> (oldMap(key) + value)
-      }
-    }
-    def accumulateMapCount2[K](oldMap: Map[K, Long], newMap: Map[K, Long]): Map[K, Long] = {
-      newMap map {
-        case (key, value) => key -> (oldMap(key) + value)
-      }
-    }
-
     topBrowsersByUser ++= accumulateMapCount(topBrowsersByUser,
       top(topCounts, sortedRequests, UserStatisticsActor.groupByBrowser, UserStatisticsActor.mapToUserCount))
 
@@ -77,7 +65,7 @@ class UserStatisticsActor extends Actor with ActorLogging {
     percentPerPage ++= requestsPerPage.mapValues(size => sizeToPercent(size, allRequests.size))
 
     // Total visit time per Page
-    totalVisitTimePerPage ++= accumulateMapCount2(totalVisitTimePerPage, visitTimePerPage(sortedRequests))
+    totalVisitTimePerPage ++= accumulateMapCount(totalVisitTimePerPage, visitTimePerPage(sortedRequests))
 
   }
 
@@ -174,9 +162,14 @@ object UserStatisticsActor {
     case (url, list: List[(String, Long)]) => url -> list.map(_._2).sum
   }
 
-
   def sizeToPercent(size: Int, total: Int): Percent = {
     Percent(size.toDouble / total * 100)
+  }
+
+  def accumulateMapCount[K, V](oldMap: Map[K, V], newMap: Map[K, V])(implicit numeric: Numeric[V]): Map[K, V] = {
+    newMap map {
+      case (key, value) => key -> numeric.plus(oldMap(key), value)
+    }
   }
 
   // complexity O(count * size(list))
