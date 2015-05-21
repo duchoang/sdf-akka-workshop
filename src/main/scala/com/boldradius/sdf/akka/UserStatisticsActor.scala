@@ -16,51 +16,71 @@ class UserStatisticsActor extends Actor with ActorLogging {
   private var allRequests: List[Request] = List()
 
   // Aggregations
-  private var requestsPerBrowser: Map[String, Int] = Map.empty
+  private var requestsPerBrowser: Map[String, Int] = Map.empty.withDefaultValue(0)
   private var requestsPerPage: Map[String, Percent] = Map.empty
   private var requestsPerMinute: Map[(Hour, Minute), Int] = Map.empty.withDefaultValue(0)
   private var landingRequests: List[Request] = List.empty
   private var sinkingRequests: List[Request] = List.empty
-  private var topLandingPages: Map[String, Int] = Map.empty
-  private var topSinkingPages: Map[String, Int] = Map.empty
+  private var topLandingPages: Map[String, Int] = Map.empty.withDefaultValue(0)
+  private var topSinkingPages: Map[String, Int] = Map.empty.withDefaultValue(0)
   private var topBrowsersByUser: Map[String, Int] = Map.empty.withDefaultValue(0)
   private var topReferrersByUser: Map[String, Int] = Map.empty.withDefaultValue(0)
 
-  private var totalVisitTimePerURL: Map[String, Long] = Map.empty.withDefaultValue(0)
+  private var totalVisitTimePerPage: Map[String, Long] = Map.empty.withDefaultValue(0)
 
   val topPagesCount: Int = context.system.settings.config.getInt("akka-workshop.stats-actor.top-pages")
   val topCounts: Int = context.system.settings.config.getInt("akka-workshop.stats-actor.top-counts")
 
   override def receive: Receive = {
     case Requests(requests) =>
-      val sortedRequests = requests.sortBy(req => req.timestamp)
+      handleRequests(requests)
+  }
 
-      landingRequests = landingRequests :+ sortedRequests.head
-      sinkingRequests = sinkingRequests :+ sortedRequests.last
-      allRequests = allRequests ::: sortedRequests
+  def handleRequests(requests: List[Request]): Unit = {
+    val sortedRequests = requests.sortBy(req => req.timestamp)
 
-      topLandingPages ++= top(topPagesCount, landingRequests, UserStatisticsActor.groupByUrl, UserStatisticsActor.mapToCount)
-      topSinkingPages ++= top(topPagesCount, sinkingRequests, UserStatisticsActor.groupByUrl, UserStatisticsActor.mapToCount)
+    landingRequests = landingRequests :+ sortedRequests.head
+    sinkingRequests = sinkingRequests :+ sortedRequests.last
+    allRequests = allRequests ::: sortedRequests
+
+    topLandingPages ++= top(topPagesCount, landingRequests, UserStatisticsActor.groupByUrl, UserStatisticsActor.mapToCount)
+    topSinkingPages ++= top(topPagesCount, sinkingRequests, UserStatisticsActor.groupByUrl, UserStatisticsActor.mapToCount)
 
 
-      def accumulateMapCount[K](oldMap: Map[K, Int], newMap: Map[K, Int]): Map[K, Int] = {
-        newMap map {
-          case (key, value) => key -> (oldMap(key) + value)
-        }
+    def accumulateMapCount[K](oldMap: Map[K, Int], newMap: Map[K, Int]): Map[K, Int] = {
+      newMap map {
+        case (key, value) => key -> (oldMap(key) + value)
       }
+    }
+    def accumulateMapCount2[K](oldMap: Map[K, Long], newMap: Map[K, Long]): Map[K, Long] = {
+      newMap map {
+        case (key, value) => key -> (oldMap(key) + value)
+      }
+    }
 
-      topBrowsersByUser ++= accumulateMapCount(topBrowsersByUser,
-        top(topCounts, sortedRequests, UserStatisticsActor.groupByBrowser, UserStatisticsActor.mapToUserCount))
+    topBrowsersByUser ++= accumulateMapCount(topBrowsersByUser,
+      top(topCounts, sortedRequests, UserStatisticsActor.groupByBrowser, UserStatisticsActor.mapToUserCount))
 
-      topReferrersByUser ++= accumulateMapCount(topReferrersByUser,
-        top(topCounts, sortedRequests, UserStatisticsActor.groupByReferrer, UserStatisticsActor.mapToUserCount))
+    topReferrersByUser ++= accumulateMapCount(topReferrersByUser,
+      top(topCounts, sortedRequests, UserStatisticsActor.groupByReferrer, UserStatisticsActor.mapToUserCount))
 
-      requestsPerBrowser ++= accumulateMapCount(requestsPerBrowser,
-        all(sortedRequests, UserStatisticsActor.groupByBrowser, UserStatisticsActor.mapToCount))
+    requestsPerBrowser ++= accumulateMapCount(requestsPerBrowser,
+      all(sortedRequests, UserStatisticsActor.groupByBrowser, UserStatisticsActor.mapToCount))
 
-      pageVisitsAggregation(allRequests)
+    // Number of requests per minute of the day
+    requestsPerMinute ++= accumulateMapCount(requestsPerMinute,
+      all(sortedRequests, UserStatisticsActor.groupByTime, UserStatisticsActor.mapToCountByTime))
 
-//      timeAggregation(sortedRequests)
+    // Total visit time per Page
+    val consecutivePairOfRequests: List[(Request, Request)] = sortedRequests zip sortedRequests.tail
+    val visitTimePerURL: List[(String, Long)] = consecutivePairOfRequests map {
+      case (req1, req2) => req1.url -> (req2.timestamp - req1.timestamp)
+    }
+    totalVisitTimePerPage ++= accumulateMapCount2(totalVisitTimePerPage,
+      all(visitTimePerURL, UserStatisticsActor.groupByUrlWithVisitTime, UserStatisticsActor.mapToCountBySumVisitTime))
+
+
+    pageVisitsAggregation(allRequests)
   }
 
   def generateStats: String = {
@@ -68,17 +88,28 @@ class UserStatisticsActor extends Actor with ActorLogging {
     val ((busyHour, busyMin), countReqs) = requestsPerMinute.maxBy(tuple => tuple._2)
     val busyTime = s"Busiest time of the day: $busyHour:$busyMin with #$countReqs requests"
     val reqPerPage = s"Page visit distribution:\n${requestsPerPage.toList.mkString("\n")}"
-    val visitTimePerPage = s"Total visit time per page:\n${totalVisitTimePerURL.mkString("\n")}"
-    ""
+    val visitTimePerPage = s"Total visit time per page:\n${totalVisitTimePerPage.mkString("\n")}"
+    val topLandingPage = s"Top 3 landing pages:\n${topLandingPages.mkString("\n")}"
+    val topSinkPage = s"Top 3 sink pages:\n${topSinkingPages.mkString("\n")}"
+    val topBrowser = s"Top 2 browsers:\n${topBrowsersByUser.mkString("\n")}"
+    val topReferr = s"Top 2 referrers:\n${topReferrersByUser.mkString("\n")}"
+    reqPerBrowser + "\n" +
+      busyTime + "\n" +
+      reqPerPage + "\n" +
+      visitTimePerPage + "\n" +
+      topLandingPage + "\n" +
+      topSinkPage + "\n" +
+      topBrowser + "\n" +
+      topReferr
   }
 
   /**
    * The top x amount of mapped results from the passed requests.
    * @return Map of page URL to Hits
    */
-  def top[K, V](number: Int, requests: List[Request],
-               groupBy: (Request) => K,
-               mapTo: ((K, List[Request])) => (K, V))(implicit ordering: Ordering[V]): Map[K, V] = {
+  def top[R, K, V](number: Int, requests: List[R],
+               groupBy: R => K,
+               mapTo: ((K, List[R])) => (K, V))(implicit ordering: Ordering[V]): Map[K, V] = {
     @tailrec
     def getMax(workingMap: Map[K, V], returnMap: Map[K, V] = Map.empty): Map[K, V] = workingMap match {
       case map if workingMap.isEmpty => returnMap
@@ -95,9 +126,9 @@ class UserStatisticsActor extends Actor with ActorLogging {
    * All requests grouped by the specified request parameter and mapped to the result.
    * @return
    */
-  def all[K, V](requests: List[Request],
-          groupBy: (Request) => K,
-          mapTo: ((K, List[Request])) => (K, V)): Map[K, V] = {
+  def all[R, K, V](requests: List[R],
+          groupBy: (R) => K,
+          mapTo: ((K, List[R])) => (K, V)): Map[K, V] = {
     requests.groupBy(groupBy).map(mapTo)
   }
 
@@ -110,46 +141,6 @@ class UserStatisticsActor extends Actor with ActorLogging {
     requestsPerPage
   }
 
-  // Number of requests per minute of the day
-  def requestsPerTime(requests: List[Request]): Map[(Hour, Minute), Int] = {
-    
-    requests.groupBy(request => {
-      val date = new DateTime(request.timestamp)
-      (date.getHourOfDay, date.getMinuteOfHour)
-    }).map {
-      case ((hour, time), reqs) => (hour, time) -> reqs.size
-    }
-  }
-
-  // Average visit time per URL
-  def visitTimePerURL(requests: List[Request]): Map[String, Long] = {
-    val sortedRequests = requests.sortBy(_.timestamp)
-    val consecutivePairOfRequests: List[(Request, Request)] = sortedRequests zip sortedRequests.tail
-
-    val visitTimePerURL: List[(String, Long)] = consecutivePairOfRequests map {
-      case (req1, req2) =>
-        req1.url -> (req2.timestamp - req1.timestamp)
-    }
-
-    visitTimePerURL.groupBy(_._1).map {
-      case (url, list: List[(String, Long)]) => url -> list.map(_._2).sum
-    }
-  }
-/*
-*
-*
-    newTimeAggregation.foreach { case (time, count) =>
-      val oldCount = requestsPerMinute(time)
-      requestsPerMinute += time -> (oldCount + count)
-    }
-    requestsPerMinute
-    totalVisitTime.foreach { case (url, time) =>
-      val oldTime = totalVisitTimePerURL(url)
-      totalVisitTimePerURL += url -> (oldTime + time)
-    }
-
-    totalVisitTimePerURL
-    */
 }
 
 object UserStatisticsActor {
@@ -169,6 +160,7 @@ object UserStatisticsActor {
     val date = new DateTime(request.timestamp)
     (date.getHourOfDay, date.getMinuteOfHour)
   }
+  val groupByUrlWithVisitTime: ((String, Long)) => String = tuple => tuple._1
 
   val mapToCount: ((String, List[Request])) => (String, Int) = {
     case (groupName, reqs) => groupName -> reqs.size
@@ -176,9 +168,11 @@ object UserStatisticsActor {
   val mapToUserCount: ((String, List[Request])) => (String, Int) = {
     case (groupName, reqs) => groupName -> reqs.groupBy(_.sessionId).size
   }
-
-  val mapToCountByTime: ((Hour, Minute), List[Request]) => ((Hour, Minute), Int) = {
+  val mapToCountByTime: (((Hour, Minute), List[Request])) => ((Hour, Minute), Int) = {
     case ((hour, time), reqs) => (hour, time) -> reqs.size
+  }
+  val mapToCountBySumVisitTime: ((String, List[(String, Long)])) => (String, Long) = {
+    case (url, list: List[(String, Long)]) => url -> list.map(_._2).sum
   }
 
   // complexity O(count * size(list))

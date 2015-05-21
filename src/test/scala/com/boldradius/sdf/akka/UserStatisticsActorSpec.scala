@@ -59,6 +59,39 @@ class UserStatisticsActorSpec extends BaseAkkaSpec {
     }
   }
 
+  "Generate statistic" should {
+    "Return the correct string" in {
+      val userStatsRef3 = TestActorRef(new UserStatisticsActor)
+      val requests = List(testChromeRequest, testFirefoxRequest, testIERequest, testChromeRequest2, testFirefoxRequest2, testChromeRequest3)
+      userStatsRef3.underlyingActor.handleRequests(requests)
+      val expectStr = """
+                        |Number of requests per browser:
+                        |(IE10,1)
+                        |(Chrome,3)
+                        |(Firefox,2)
+                        |Busiest time of the day: 14:20 with #3 requests
+                        |Page visit distribution:
+                        |(/home,66.67)
+                        |(/contact,33.33)
+                        |Total visit time per page:
+                        |/home -> 600000
+                        |/contact -> 300000
+                        |Top 3 landing pages:
+                        |/home -> 1
+                        |Top 3 sink pages:
+                        |/home -> 1
+                        |Top 2 browsers:
+                        |Chrome -> 3
+                        |Firefox -> 2
+                        |Top 2 referrers:
+                        |google -> 3
+                        |facebook -> 2
+                      """.stripMargin
+      userStatsRef3.underlyingActor.generateStats shouldEqual expectStr.trim
+
+    }
+  }
+
   val time1 = new DateTime(2015, 5, 20, 14, 20)
   val time2 = new DateTime(2015, 5, 20, 14, 30)
   val time3 = new DateTime(2015, 5, 20, 14, 35)
