@@ -14,7 +14,7 @@ class UserStatisticsActor extends Actor with ActorLogging {
   private var allRequests: List[Request] = List()
 
   // Aggregations
-  private var requestsPerBrowser: Map[String, Int] = Map.empty
+  private var requestsPerBrowser: Map[String, Int] = Map.empty.withDefaultValue(0)
   private var requestsPerPage: Map[String, Percent] = Map.empty
   type Hour = Int
   type Minute = Int
@@ -154,8 +154,11 @@ class UserStatisticsActor extends Actor with ActorLogging {
 object UserStatisticsActor {
   def props: Props = Props[UserStatisticsActor]
 
-  case class Percent(percent: Double) {
+  case class Percent(percent: Double) extends Ordered[Percent] {
     override def toString = f"$percent%.2f"
+
+    override def compare(that: Percent): Int =
+      this.percent.compare(that.percent)
   }
 
   val groupByUrl: Request => String = req => req.url
