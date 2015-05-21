@@ -11,13 +11,13 @@ import scala.annotation.tailrec
 
 class UserStatisticsActor extends Actor with ActorLogging {
 
+  import UserStatisticsActor._
+
   private var allRequests: List[Request] = List()
 
   // Aggregations
   private var requestsPerBrowser: Map[String, Int] = Map.empty.withDefaultValue(0)
   private var requestsPerPage: Map[String, Percent] = Map.empty
-  type Hour = Int
-  type Minute = Int
   private var requestsPerMinute: Map[(Hour, Minute), Int] = Map.empty.withDefaultValue(0)
   private var landingRequests: List[Request] = List.empty
   private var sinkingRequests: List[Request] = List.empty
@@ -43,7 +43,7 @@ class UserStatisticsActor extends Actor with ActorLogging {
       topSinkingPages ++= top(topPagesCount, sinkingRequests, UserStatisticsActor.groupByUrl, UserStatisticsActor.mapToCount)
 
 
-      def accumulateMapCount(oldMap: Map[String, Int], newMap: Map[String, Int]): Map[String, Int] = {
+      def accumulateMapCount[K](oldMap: Map[K, Int], newMap: Map[K, Int]): Map[K, Int] = {
         newMap map {
           case (key, value) => key -> (oldMap(key) + value)
         }
@@ -60,7 +60,7 @@ class UserStatisticsActor extends Actor with ActorLogging {
 
       pageVisitsAggregation(allRequests)
 
-      timeAggregation(sortedRequests)
+//      timeAggregation(sortedRequests)
   }
 
   def generateStats: String = {
@@ -76,11 +76,11 @@ class UserStatisticsActor extends Actor with ActorLogging {
    * The top x amount of mapped results from the passed requests.
    * @return Map of page URL to Hits
    */
-  def top(number: Int, requests: List[Request],
-               groupBy: (Request) => String,
-               mapTo: ((String, List[Request])) => (String, Int)): Map[String, Int] = {
+  def top[K, V](number: Int, requests: List[Request],
+               groupBy: (Request) => K,
+               mapTo: ((K, List[Request])) => (K, V))(implicit ordering: Ordering[V]): Map[K, V] = {
     @tailrec
-    def getMax(workingMap: Map[String, Int], returnMap: Map[String, Int] = Map.empty): Map[String, Int] = workingMap match {
+    def getMax(workingMap: Map[K, V], returnMap: Map[K, V] = Map.empty): Map[K, V] = workingMap match {
       case map if workingMap.isEmpty => returnMap
       case map if returnMap.size == number => returnMap
       case map =>
@@ -95,9 +95,9 @@ class UserStatisticsActor extends Actor with ActorLogging {
    * All requests grouped by the specified request parameter and mapped to the result.
    * @return
    */
-  def all(requests: List[Request],
-          groupBy: (Request) => String,
-          mapTo: ((String, List[Request])) => (String, Int)): Map[String, Int] = {
+  def all[K, V](requests: List[Request],
+          groupBy: (Request) => K,
+          mapTo: ((K, List[Request])) => (K, V)): Map[K, V] = {
     requests.groupBy(groupBy).map(mapTo)
   }
 
@@ -111,24 +111,18 @@ class UserStatisticsActor extends Actor with ActorLogging {
   }
 
   // Number of requests per minute of the day
-  def timeAggregation(requests: List[Request]): Map[(Hour, Minute), Int] = {
-    val newTimeAggregation: Map[(Hour, Minute), Int] =
-      requests.groupBy(request => {
-        val date = new DateTime(request.timestamp)
-        (date.getHourOfDay, date.getMinuteOfHour)
-      }).map {
-        case ((hour, time), reqs) => (hour, time) -> reqs.size
-      }
-
-    newTimeAggregation.foreach { case (time, count) =>
-      val oldCount = requestsPerMinute(time)
-      requestsPerMinute += time -> (oldCount + count)
+  def requestsPerTime(requests: List[Request]): Map[(Hour, Minute), Int] = {
+    
+    requests.groupBy(request => {
+      val date = new DateTime(request.timestamp)
+      (date.getHourOfDay, date.getMinuteOfHour)
+    }).map {
+      case ((hour, time), reqs) => (hour, time) -> reqs.size
     }
-    requestsPerMinute
   }
 
   // Average visit time per URL
-  def visitTimePerURLAggregation(requests: List[Request]): Map[String, Long] = {
+  def visitTimePerURL(requests: List[Request]): Map[String, Long] = {
     val sortedRequests = requests.sortBy(_.timestamp)
     val consecutivePairOfRequests: List[(Request, Request)] = sortedRequests zip sortedRequests.tail
 
@@ -137,21 +131,31 @@ class UserStatisticsActor extends Actor with ActorLogging {
         req1.url -> (req2.timestamp - req1.timestamp)
     }
 
-    val totalVisitTime: Map[String, Long] = visitTimePerURL.groupBy(_._1).map {
+    visitTimePerURL.groupBy(_._1).map {
       case (url, list: List[(String, Long)]) => url -> list.map(_._2).sum
     }
-
+  }
+/*
+*
+*
+    newTimeAggregation.foreach { case (time, count) =>
+      val oldCount = requestsPerMinute(time)
+      requestsPerMinute += time -> (oldCount + count)
+    }
+    requestsPerMinute
     totalVisitTime.foreach { case (url, time) =>
       val oldTime = totalVisitTimePerURL(url)
       totalVisitTimePerURL += url -> (oldTime + time)
     }
 
     totalVisitTimePerURL
-  }
-
+    */
 }
 
 object UserStatisticsActor {
+  type Hour = Int
+  type Minute = Int
+
   def props: Props = Props[UserStatisticsActor]
 
   case class Percent(percent: Double) extends Ordered[Percent] {
@@ -164,12 +168,20 @@ object UserStatisticsActor {
   val groupByUrl: Request => String = req => req.url
   val groupByBrowser: Request => String = req => req.browser
   val groupByReferrer: Request => String = req => req.referrer
+  val groupByTime: Request => (Hour, Minute) = request => {
+    val date = new DateTime(request.timestamp)
+    (date.getHourOfDay, date.getMinuteOfHour)
+  }
 
   val mapToCount: ((String, List[Request])) => (String, Int) = {
     case (groupName, reqs) => groupName -> reqs.size
   }
   val mapToUserCount: ((String, List[Request])) => (String, Int) = {
     case (groupName, reqs) => groupName -> reqs.groupBy(_.sessionId).size
+  }
+
+  val mapToCountByTime: ((Hour, Minute), List[Request]) => ((Hour, Minute), Int) = {
+    case ((hour, time), reqs) => (hour, time) -> reqs.size
   }
 
   // complexity O(count * size(list))
