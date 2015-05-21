@@ -61,17 +61,17 @@ class UserStatisticsActorSpec extends BaseAkkaSpec {
       val result: Map[String, Int] = userStatsRef2.underlyingActor.usersPerBrowserAggregation
       result shouldEqual Map("IE10" -> 1, "Chrome" -> 2, "Firefox" -> 1)
 
-      val top = userStatsRef2.underlyingActor.getTopBrowser
-      top shouldEqual (Some(("Chrome", 2)), Some(("Firefox", 1)))
+      val top = userStatsRef2.underlyingActor.getTopBrowser(2)
+      top shouldEqual List(("Chrome", 2), ("IE10", 1))
     }
 
     "Get top referrer" in {
       val userStatsRef3 = TestActorRef(new UserStatisticsActor)
       userStatsRef3.underlyingActor.referrerAggregation(
-        List(testChromeRequest, testFirefoxRequest, testIERequest, testChromeRequest2)
+        List(testChromeRequest, testFirefoxRequest, testIERequest, testChromeRequest2, testFirefoxRequest2, testChromeRequest3)
       )
-      val result = userStatsRef3.underlyingActor.getTopReferrer
-      result shouldEqual (Some(("google", 2)), Some(("facebook", 1)))
+      val result = userStatsRef3.underlyingActor.getTopReferrer(3)
+      result shouldEqual List(("google", 3), ("facebook", 2), ("microsoft", 1))
 
     }
   }
@@ -83,13 +83,17 @@ class UserStatisticsActorSpec extends BaseAkkaSpec {
   val url2 = "/contact"
   val url3 = "/product"
   val url4 = "/about"
+  val user1 = 42l
+  val user2 = 10l
+  val user3 = 12l
 
-  val testChromeRequest = Request(42l, time1.getMillis, url1, "google", "Chrome")
+  val testChromeRequest = Request(user1, time1.getMillis, url1, "google", "Chrome")
   val testFirefoxRequest = testChromeRequest.copy(browser = "Firefox", timestamp = time2.getMillis, url = url2, referrer = "facebook")
-  val testIERequest = testChromeRequest.copy(browser = "IE10", timestamp = time3.getMillis, url = url1, referrer = "facebook")
+  val testIERequest = testChromeRequest.copy(browser = "IE10", timestamp = time3.getMillis, url = url1, referrer = "microsoft")
   val testOtherPageRequest = testChromeRequest.copy(url = url3)
-  val testChromeRequest2 = testChromeRequest.copy(sessionId = 10l)
-  val testFirefoxRequest2 = testFirefoxRequest.copy(sessionId = 12l)
+  val testChromeRequest2 = testChromeRequest.copy(sessionId = user2)
+  val testChromeRequest3 = testChromeRequest.copy(sessionId = user3)
+  val testFirefoxRequest2 = testFirefoxRequest.copy(sessionId = user3)
 
   val testLandingPage1 = testChromeRequest.copy(url = url4)
   val testLandingPage2 = testChromeRequest.copy(url = "test.org/about.html")
