@@ -28,7 +28,7 @@ class UserStatisticsActorSpec extends BaseAkkaSpec {
     "Provide top three landing pages and hits" in {
       val requests = List(testChromeRequest, testChromeRequest, testChromeRequest, testOtherPageRequest, testOtherPageRequest,
         testLandingPage1, testLandingPage1, testLandingPage2)
-      val result = userStatsRef.underlyingActor.topPages(3, requests)
+      val result = userStatsRef.underlyingActor.top(3, requests, UserStatisticsActor.groupByUrl, UserStatisticsActor.mapToCount)
       result shouldEqual Map(url1 -> 3, url3 -> 2, url4 -> 2)
     }
 
@@ -44,6 +44,13 @@ class UserStatisticsActorSpec extends BaseAkkaSpec {
         List(testChromeRequest, testFirefoxRequest, testIERequest)
       )
       result shouldEqual Map("/home" -> 600000, "/contact" -> 300000)
+    }
+
+    "Get top browsers new" in {
+      val userStatsRef2 = TestActorRef(new UserStatisticsActor)
+      val requests = List(testChromeRequest, testChromeRequest, testChromeRequest, testFirefoxRequest, testFirefoxRequest2, testIERequest, testChromeRequest2)
+      val result = userStatsRef2.underlyingActor.top(2,requests, UserStatisticsActor.groupByBrowser, UserStatisticsActor.mapToUserCount)
+      result shouldEqual Map("Chrome" -> 2, "Firefox" -> 2)
     }
 
     "Get top browsers" in {
