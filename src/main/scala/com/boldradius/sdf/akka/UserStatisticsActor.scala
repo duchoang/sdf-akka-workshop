@@ -101,20 +101,40 @@ class UserStatisticsActor extends Actor with ActorLogging {
   }
 
   // Find top 2 browser
-  def getTopBrowser: (Option[(String, Int)], Option[(String, Int)]) = {
-    val usersPerBrowser: Map[String, Int] = usersPerBrowserAggregation
-    val sorted = usersPerBrowser.toList.sortBy(tuple => tuple._2)
-    (sorted.lastOption, sorted.init.lastOption)
+  def getTopBrowser(count: Int): List[(String, Int)] = {
+    val usersPerBrowser: List[(String, Int)] = usersPerBrowserAggregation.toList
+    val greaterThan = (tuple1: (String, Int), tuple2: (String, Int)) => tuple1._2 > tuple2._2
+    getMultiMax(usersPerBrowser, count, greaterThan)
+  }
+
+  // complexity O(count * size(list))
+  def getMultiMax[A](list: List[A], count: Int, greaterThan: (A, A) => Boolean): List[A] = {
+
+    def addToSortedList(elem: A, descendingList: List[A]): List[A] = descendingList match {
+      case head :: tail =>
+        if (greaterThan(elem, head)) elem :: head :: tail
+        else head :: addToSortedList(elem, tail)
+      case Nil => List(elem)
+    }
+
+    list.foldLeft(List.empty[A])((result, elem) => {
+      val newResult = addToSortedList(elem, result)
+      if (newResult.size > count)
+        newResult.init
+      else
+        newResult
+    })
   }
 
   // Find top 2 referrer
-  def getTopReferrer: (Option[(String, Int)], Option[(String, Int)]) = {
-    val usersPerReferrer: Map[String, Int] = requestsPerReferrer.map {
+  def getTopReferrer(count: Int): List[(String, Int)] = {
+    val usersPerReferrer: List[(String, Int)] = requestsPerReferrer.toList.map {
       case (referrer, requestsPerUser) =>
         referrer -> requestsPerUser.count(tuple => tuple._2 > 0)
     }
-    val sorted = usersPerReferrer.toList.sortBy(tuple => tuple._2)
-    (sorted.lastOption, sorted.init.lastOption)
+
+    val greaterThan = (tuple1: (String, Int), tuple2: (String, Int)) => tuple1._2 > tuple2._2
+    getMultiMax(usersPerReferrer, count, greaterThan)
   }
 
   // Page visit distribution
