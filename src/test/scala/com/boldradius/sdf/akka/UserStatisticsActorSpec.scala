@@ -10,7 +10,7 @@ class UserStatisticsActorSpec extends BaseAkkaSpec {
 
   "Aggregation functions" should {
     "Count number of requests by browser" in {
-      userStatsRef.underlyingActor.browserUsersAggregation(
+      userStatsRef.underlyingActor.browserAggregation(
         List(testChromeRequest, testChromeRequest, testChromeRequest, testFirefoxRequest, testIERequest)
       )
       val result = userStatsRef.underlyingActor.requestsPerBrowserAggregation
@@ -48,7 +48,7 @@ class UserStatisticsActorSpec extends BaseAkkaSpec {
 
     "Get top browsers" in {
       val userStatsRef2 = TestActorRef(new UserStatisticsActor)
-      userStatsRef2.underlyingActor.browserUsersAggregation(
+      userStatsRef2.underlyingActor.browserAggregation(
         List(testChromeRequest, testChromeRequest, testChromeRequest, testFirefoxRequest, testIERequest, testChromeRequest2)
       )
       val result: Map[String, Int] = userStatsRef2.underlyingActor.usersPerBrowserAggregation
@@ -56,6 +56,16 @@ class UserStatisticsActorSpec extends BaseAkkaSpec {
 
       val top = userStatsRef2.underlyingActor.getTopBrowser
       top shouldEqual (Some(("Chrome", 2)), Some(("Firefox", 1)))
+    }
+
+    "Get top referrer" in {
+      val userStatsRef3 = TestActorRef(new UserStatisticsActor)
+      userStatsRef3.underlyingActor.referrerAggregation(
+        List(testChromeRequest, testFirefoxRequest, testIERequest, testChromeRequest2)
+      )
+      val result = userStatsRef3.underlyingActor.getTopReferrer
+      result shouldEqual (Some(("google", 2)), Some(("facebook", 1)))
+
     }
   }
 
@@ -67,9 +77,9 @@ class UserStatisticsActorSpec extends BaseAkkaSpec {
   val url3 = "/product"
   val url4 = "/about"
 
-  val testChromeRequest = Request(42l, time1.getMillis, url1, "", "Chrome")
-  val testFirefoxRequest = testChromeRequest.copy(browser = "Firefox", timestamp = time2.getMillis, url = url2)
-  val testIERequest = testChromeRequest.copy(browser = "IE10", timestamp = time3.getMillis, url = url1)
+  val testChromeRequest = Request(42l, time1.getMillis, url1, "google", "Chrome")
+  val testFirefoxRequest = testChromeRequest.copy(browser = "Firefox", timestamp = time2.getMillis, url = url2, referrer = "facebook")
+  val testIERequest = testChromeRequest.copy(browser = "IE10", timestamp = time3.getMillis, url = url1, referrer = "facebook")
   val testOtherPageRequest = testChromeRequest.copy(url = url3)
   val testChromeRequest2 = testChromeRequest.copy(sessionId = 10l)
 

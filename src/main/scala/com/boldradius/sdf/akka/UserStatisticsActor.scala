@@ -14,6 +14,7 @@ class UserStatisticsActor extends Actor with ActorLogging {
   // Aggregations
   type UserId = Long
   private var requestsPerBrowser: Map[String, Map[UserId, Int]] = Map.empty.withDefaultValue(Map.empty)
+  private var requestsPerReferrer: Map[String, Map[UserId, Int]] = Map.empty.withDefaultValue(Map.empty)
   private var requestsPerPage: Map[String, Percent] = Map.empty
   type Hour = Int
   type Minute = Int
@@ -35,18 +36,28 @@ class UserStatisticsActor extends Actor with ActorLogging {
       topThreeLandingPages ++= topThreePages(landingRequests)
       topThreeSinkingPages ++= topThreePages(sinkingRequests)
 
-      browserUsersAggregation(requests)
+      browserAggregation(requests)
+      referrerAggregation(requests)
 
 
       pageVisitsAggregation(allRequests)
       timeAggregation(requests)
   }
 
+  def browserAggregation(requests: List[Request]): Unit = {
+    val newReqPerBrowsers = browserOrReferrerAggregation(requests, req => req.browser, requestsPerBrowser)
+    requestsPerBrowser = requestsPerBrowser ++ newReqPerBrowsers
+  }
 
-  def browserUsersAggregation(requests: List[Request]): Unit = {
-    requests.groupBy(_.browser).foreach { case (browser, reqs) =>
+  def referrerAggregation(requests: List[Request]): Unit = {
+    val newReferPerBrowser = browserOrReferrerAggregation(requests, req => req.referrer, requestsPerReferrer)
+    requestsPerReferrer = requestsPerReferrer ++ newReferPerBrowser
+  }
+
+  def browserOrReferrerAggregation(requests: List[Request], groupByFunc: Request => String, oldMapping: Map[String, Map[UserId, Int]]): Map[String, Map[UserId, Int]] = {
+    requests.groupBy(groupByFunc).map { case (key, reqs) =>
       val newMap: Map[UserId, List[Request]] = reqs.groupBy(_.sessionId)
-      val oldMap: Map[UserId, Int] = requestsPerBrowser(browser)
+      val oldMap: Map[UserId, Int] = oldMapping(key)
 
       // combine 2 mapping to the new one
       val allUserId: Set[UserId] = oldMap.keySet ++ newMap.keySet
@@ -56,7 +67,7 @@ class UserStatisticsActor extends Actor with ActorLogging {
         userId -> (oldCount + newCount)
       }).toMap
 
-      requestsPerBrowser += browser -> combineMap
+      key -> combineMap
     }
   }
 
@@ -93,6 +104,16 @@ class UserStatisticsActor extends Actor with ActorLogging {
   def getTopBrowser: (Option[(String, Int)], Option[(String, Int)]) = {
     val usersPerBrowser: Map[String, Int] = usersPerBrowserAggregation
     val sorted = usersPerBrowser.toList.sortBy(tuple => tuple._2)
+    (sorted.lastOption, sorted.init.lastOption)
+  }
+
+  // Find top 2 referrer
+  def getTopReferrer: (Option[(String, Int)], Option[(String, Int)]) = {
+    val usersPerReferrer: Map[String, Int] = requestsPerReferrer.map {
+      case (referrer, requestsPerUser) =>
+        referrer -> requestsPerUser.count(tuple => tuple._2 > 0)
+    }
+    val sorted = usersPerReferrer.toList.sortBy(tuple => tuple._2)
     (sorted.lastOption, sorted.init.lastOption)
   }
 
