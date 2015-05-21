@@ -28,7 +28,7 @@ class UserStatisticsActorSpec extends BaseAkkaSpec {
     "Provide top three landing pages and hits" in {
       val requests = List(testChromeRequest, testChromeRequest, testChromeRequest, testOtherPageRequest, testOtherPageRequest,
         testLandingPage1, testLandingPage1, testLandingPage2)
-      val result = userStatsRef.underlyingActor.topThreePages(requests)
+      val result = userStatsRef.underlyingActor.topPages(3, requests)
       result shouldEqual Map(url1 -> 3, url3 -> 2, url4 -> 2)
     }
 
