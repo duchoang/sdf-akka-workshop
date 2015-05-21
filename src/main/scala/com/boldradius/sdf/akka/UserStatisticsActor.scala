@@ -2,7 +2,6 @@ package com.boldradius.sdf.akka
 
 import akka.actor.{Props, Actor, ActorLogging}
 import com.boldradius.sdf.akka.SessionHandlingActor.Requests
-import com.boldradius.sdf.akka.UserStatisticsActor.Percent
 import org.joda.time.DateTime
 
 import scala.annotation.tailrec
@@ -17,7 +16,8 @@ class UserStatisticsActor extends Actor with ActorLogging {
 
   // Aggregations
   private var requestsPerBrowser: Map[String, Int] = Map.empty.withDefaultValue(0)
-  private var requestsPerPage: Map[String, Percent] = Map.empty
+  private var requestsPerPage: Map[String, Int] = Map.empty.withDefaultValue(0)
+  private var percentPerPage: Map[String, Percent] = Map.empty
   private var requestsPerMinute: Map[(Hour, Minute), Int] = Map.empty.withDefaultValue(0)
   private var landingRequests: List[Request] = List.empty
   private var sinkingRequests: List[Request] = List.empty
@@ -71,23 +71,31 @@ class UserStatisticsActor extends Actor with ActorLogging {
     requestsPerMinute ++= accumulateMapCount(requestsPerMinute,
       all(sortedRequests, UserStatisticsActor.groupByTime, UserStatisticsActor.mapToCountByTime))
 
+    // Number of requests per page
+    requestsPerPage ++= accumulateMapCount(requestsPerPage,
+        all(sortedRequests, UserStatisticsActor.groupByUrl, UserStatisticsActor.mapToCount))
+    percentPerPage ++= requestsPerPage.mapValues(size => sizeToPercent(size, requestsPerPage.size))
+
     // Total visit time per Page
-    val consecutivePairOfRequests: List[(Request, Request)] = sortedRequests zip sortedRequests.tail
+    totalVisitTimePerPage ++= accumulateMapCount2(totalVisitTimePerPage, visitTimePerPage(sortedRequests))
+
+  }
+
+  def visitTimePerPage(requests: List[Request]): Map[String, Long] = {
+    val consecutivePairOfRequests: List[(Request, Request)] = requests zip requests.tail
     val visitTimePerURL: List[(String, Long)] = consecutivePairOfRequests map {
       case (req1, req2) => req1.url -> (req2.timestamp - req1.timestamp)
     }
-    totalVisitTimePerPage ++= accumulateMapCount2(totalVisitTimePerPage,
-      all(visitTimePerURL, UserStatisticsActor.groupByUrlWithVisitTime, UserStatisticsActor.mapToCountBySumVisitTime))
-
-
-    pageVisitsAggregation(allRequests)
+    all(visitTimePerURL, UserStatisticsActor.groupByUrlWithVisitTime, UserStatisticsActor.mapToCountBySumVisitTime)
   }
 
   def generateStats: String = {
     val reqPerBrowser = s"Number of requests per browser:\n${requestsPerBrowser.toList.mkString("\n")}"
     val ((busyHour, busyMin), countReqs) = requestsPerMinute.maxBy(tuple => tuple._2)
     val busyTime = s"Busiest time of the day: $busyHour:$busyMin with #$countReqs requests"
-    val reqPerPage = s"Page visit distribution:\n${requestsPerPage.toList.mkString("\n")}"
+    val reqPerPage = s"Page visit distribution:\n${percentPerPage.toList.mkString("\n")}"
+    println(s"reqPerPage = $percentPerPage")
+    println(s"requestsPerPage = $requestsPerPage")
     val visitTimePerPage = s"Total visit time per page:\n${totalVisitTimePerPage.mkString("\n")}"
     val topLandingPage = s"Top 3 landing pages:\n${topLandingPages.mkString("\n")}"
     val topSinkPage = s"Top 3 sink pages:\n${topSinkingPages.mkString("\n")}"
@@ -131,16 +139,6 @@ class UserStatisticsActor extends Actor with ActorLogging {
           mapTo: ((K, List[R])) => (K, V)): Map[K, V] = {
     requests.groupBy(groupBy).map(mapTo)
   }
-
-  // Page visit distribution
-  def pageVisitsAggregation(requests: List[Request]): Map[String, Percent] = {
-    val totalCount = requests.size.toDouble
-    requestsPerPage ++= requests.groupBy(_.url).map { case (url, reqs) =>
-      url -> Percent(reqs.size / totalCount * 100)
-    }
-    requestsPerPage
-  }
-
 }
 
 object UserStatisticsActor {
@@ -149,8 +147,11 @@ object UserStatisticsActor {
 
   def props: Props = Props[UserStatisticsActor]
 
-  case class Percent(percent: Double) {
+  case class Percent(percent: Double) extends Ordered[Percent] {
     override def toString = f"$percent%.2f"
+
+    override def compare(that: Percent): Int =
+      this.percent.compare(that.percent)
   }
 
   val groupByUrl: Request => String = req => req.url
@@ -173,6 +174,11 @@ object UserStatisticsActor {
   }
   val mapToCountBySumVisitTime: ((String, List[(String, Long)])) => (String, Long) = {
     case (url, list: List[(String, Long)]) => url -> list.map(_._2).sum
+  }
+
+
+  def sizeToPercent(size: Int, total: Int): Percent = {
+    Percent(size.toDouble / total * 100)
   }
 
   // complexity O(count * size(list))
