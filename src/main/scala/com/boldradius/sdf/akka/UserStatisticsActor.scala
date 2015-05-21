@@ -74,7 +74,7 @@ class UserStatisticsActor extends Actor with ActorLogging {
     // Number of requests per page
     requestsPerPage ++= accumulateMapCount(requestsPerPage,
         all(sortedRequests, UserStatisticsActor.groupByUrl, UserStatisticsActor.mapToCount))
-    percentPerPage ++= requestsPerPage.mapValues(size => sizeToPercent(size, requestsPerPage.size))
+    percentPerPage ++= requestsPerPage.mapValues(size => sizeToPercent(size, allRequests.size))
 
     // Total visit time per Page
     totalVisitTimePerPage ++= accumulateMapCount2(totalVisitTimePerPage, visitTimePerPage(sortedRequests))
@@ -94,8 +94,6 @@ class UserStatisticsActor extends Actor with ActorLogging {
     val ((busyHour, busyMin), countReqs) = requestsPerMinute.maxBy(tuple => tuple._2)
     val busyTime = s"Busiest time of the day: $busyHour:$busyMin with #$countReqs requests"
     val reqPerPage = s"Page visit distribution:\n${percentPerPage.toList.mkString("\n")}"
-    println(s"reqPerPage = $percentPerPage")
-    println(s"requestsPerPage = $requestsPerPage")
     val visitTimePerPage = s"Total visit time per page:\n${totalVisitTimePerPage.mkString("\n")}"
     val topLandingPage = s"Top 3 landing pages:\n${topLandingPages.mkString("\n")}"
     val topSinkPage = s"Top 3 sink pages:\n${topSinkingPages.mkString("\n")}"

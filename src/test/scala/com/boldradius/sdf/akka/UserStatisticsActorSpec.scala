@@ -19,7 +19,6 @@ class UserStatisticsActorSpec extends BaseAkkaSpec {
       val requests = List(testChromeRequest, testChromeRequest, testChromeRequest, testOtherPageRequest, testOtherPageRequest)
       val result = userStatsRef.underlyingActor.all(requests, UserStatisticsActor.groupByUrl, UserStatisticsActor.mapToCount)
       val newRes = result.mapValues(size => UserStatisticsActor.sizeToPercent(size, requests.size))
-      println(s"newRes = $newRes")
       newRes shouldEqual Map(url1 -> Percent(60), url3 -> Percent(40))
       val result2 = userStatsRef.underlyingActor.all(testOtherPageRequest :: requests, UserStatisticsActor.groupByUrl, UserStatisticsActor.mapToCount)
       val newRes2 = result2.mapValues(size => UserStatisticsActor.sizeToPercent(size, requests.size + 1))
@@ -89,7 +88,7 @@ class UserStatisticsActorSpec extends BaseAkkaSpec {
                         |google -> 3
                         |facebook -> 2
                       """.stripMargin
-      userStatsRef3.underlyingActor.generateStats //shouldEqual ""
+      userStatsRef3.underlyingActor.generateStats shouldEqual expectStr.trim
 
     }
   }
