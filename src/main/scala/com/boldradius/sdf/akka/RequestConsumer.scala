@@ -30,6 +30,7 @@ class RequestConsumer extends Actor with ActorLogging {
   val statsActor = context.actorOf(UserStatisticsActor.props, "stats-actor")
   context.watch(statsActor)
   val emailActor = context.actorOf(EmailActor.props, "email-actor")
+  val chatActor = context.system.actorOf(ChatActor.props, "chatActor")
 
   def receive: Receive = {
     case request: Request => handleRequest(request)
@@ -43,7 +44,7 @@ class RequestConsumer extends Actor with ActorLogging {
       emailActor ! StatsActorTerminated(ref.path.name)
 
     case GetMetrics =>
-      val futureMetrics = sessionHandlers.values.map(sessionHandler => (sessionHandler ? GetMetrics).mapTo[Metrics])
+      val futureMetrics: Iterable[Future[Metrics]] = sessionHandlers.values.map(sessionHandler => (sessionHandler ? GetMetrics).mapTo[Metrics])
       Future.fold[Metrics, List[Metrics]](futureMetrics)(List.empty) { (total, metrics) => metrics :: total } pipeTo sender()
   }
 
@@ -51,7 +52,7 @@ class RequestConsumer extends Actor with ActorLogging {
     if (sessionHandlers.contains(request.sessionId)) {
       sessionHandlers(request.sessionId) ! request
     } else {
-      val sessionHandler = context.actorOf(SessionHandlingActor.props(request.sessionId))
+      val sessionHandler = context.actorOf(SessionHandlingActor.props(request.sessionId, chatActor))
       sessionHandlers += (request.sessionId -> sessionHandler)
       sessionHandler ! request
     }
