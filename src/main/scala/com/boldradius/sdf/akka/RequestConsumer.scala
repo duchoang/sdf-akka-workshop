@@ -45,6 +45,9 @@ class RequestConsumer extends Actor with ActorLogging {
     case GetMetrics =>
       val futureMetrics = sessionHandlers.values.map(sessionHandler => (sessionHandler ? GetMetrics).mapTo[Metrics])
       Future.fold[Metrics, List[Metrics]](futureMetrics)(List.empty) { (total, metrics) => metrics :: total } pipeTo sender()
+
+    case UserStatisticsActor.PersistMsg =>
+      statsActor ! UserStatisticsActor.PersistMsg
   }
 
   private def handleRequest(request: Request) = {

@@ -36,8 +36,13 @@ object RequestSimulationExampleApp extends App {
           s"Users per browser:\n${result.groupBy(_.browser).mapValues(_.size).mkString("\n")}"
         println(resultString)
         getInput
-      case _ =>
-        "Stopping..."
+
+      case "persist" =>
+        consumer ! UserStatisticsActor.PersistMsg
+        getInput
+
+      case msg =>
+        s"Stopping with msg = $msg..."
     }
   }
   println(getInput)
