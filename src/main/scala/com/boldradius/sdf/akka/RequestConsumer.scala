@@ -1,14 +1,25 @@
 package com.boldradius.sdf.akka
 
 import akka.actor._
+import akka.util.Timeout
 import com.boldradius.sdf.akka.EmailActor.StatsActorTerminated
-import com.boldradius.sdf.akka.SessionHandlingActor.InactiveSession
+import com.boldradius.sdf.akka.RequestConsumer.GetMetrics
+import com.boldradius.sdf.akka.SessionHandlingActor.{Metrics, InactiveSession}
+import akka.pattern.{ask, pipe}
+
+import scala.concurrent.duration._
+import scala.concurrent.{Await, Future}
 
 object RequestConsumer {
   def props = Props[RequestConsumer]
+
+  case object GetMetrics
 }
 
 class RequestConsumer extends Actor with ActorLogging {
+
+  implicit val executionContext = context.dispatcher
+  implicit val timeout = Timeout(10 seconds)
 
   override val supervisorStrategy = {
     OneForOneStrategy(maxNrOfRetries = 2)(super.supervisorStrategy.decider)
@@ -28,8 +39,12 @@ class RequestConsumer extends Actor with ActorLogging {
       sessionHandlers -= id
       statsActor ! requests
 
-    case Terminated(ex) =>
-      emailActor ! StatsActorTerminated(ex.toString())
+    case Terminated(ref) =>
+      emailActor ! StatsActorTerminated(ref.path.name)
+
+    case GetMetrics =>
+      val futureMetrics = sessionHandlers.values.map(sessionHandler => (sessionHandler ? GetMetrics).mapTo[Metrics])
+      Future.fold[Metrics, List[Metrics]](futureMetrics)(List.empty) { (total, metrics) => metrics :: total } pipeTo sender()
   }
 
   private def handleRequest(request: Request) = {

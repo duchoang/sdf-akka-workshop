@@ -99,7 +99,7 @@ class UserStatisticsActor extends Actor with ActorLogging {
 
   /**
    * The top x amount of mapped results from the passed requests.
-   * @return Map of page URL to Hits
+   * @return
    */
   def top[R, K, V](number: Int, requests: List[R],
                groupBy: R => K,
@@ -108,9 +108,9 @@ class UserStatisticsActor extends Actor with ActorLogging {
     def getMax(workingMap: Map[K, V], returnMap: Map[K, V] = Map.empty): Map[K, V] = workingMap match {
       case map if workingMap.isEmpty => returnMap
       case map if returnMap.size == number => returnMap
-      case map =>
-        val currentMax @ (maxUrl, _) = map.maxBy { case (_, size) => size }
-        getMax(map - maxUrl, returnMap + currentMax)
+      case _ =>
+        val currentMax @ (maxKey, _) = workingMap.maxBy { case (_, size) => size }
+        getMax(workingMap - maxKey, returnMap + currentMax)
     }
 
     getMax(all(requests, groupBy, mapTo))
