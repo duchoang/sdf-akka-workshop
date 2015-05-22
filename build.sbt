@@ -12,5 +12,8 @@ libraryDependencies ++= Seq(
   "com.typesafe.akka" %% "akka-testkit"    % "2.3.6",
   "ch.qos.logback"    %  "logback-classic" % "1.1.2",
   "joda-time"         % "joda-time"        % "2.7",
-  "org.joda"          % "joda-convert"     % "1.6"
+  "org.joda"          % "joda-convert"     % "1.6",
+  "com.typesafe.akka" % "akka-persistence-experimental_2.11" % "2.3.11"
 )
+
+fork in run := true

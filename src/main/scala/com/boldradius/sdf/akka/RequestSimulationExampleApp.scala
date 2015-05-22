@@ -17,7 +17,12 @@ object RequestSimulationExampleApp extends App {
 
   // Wait for the user to hit <enter>
   println("Hit <enter> to stop the simulation")
-  StdIn.readLine()
+  var msg = StdIn.readLine()
+  println(s"msg = $msg")
+  /*while (msg != "q") {
+    println(s"msg = $msg")
+    msg = StdIn.readLine()
+  }*/
 
   // Tell the producer to stop working
   producer ! Stop

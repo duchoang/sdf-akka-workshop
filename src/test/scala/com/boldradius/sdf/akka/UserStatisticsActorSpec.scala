@@ -64,7 +64,7 @@ class UserStatisticsActorSpec extends BaseAkkaSpec {
     "Return the correct string" in {
       val userStatsRef3 = TestActorRef(new UserStatisticsActor)
       val requests = List(testChromeRequest, testFirefoxRequest, testIERequest, testChromeRequest2, testFirefoxRequest2, testChromeRequest3)
-      userStatsRef3.underlyingActor.handleRequests(requests)
+      userStatsRef3.underlyingActor.testRequests(requests)
       val expectStr = """
                         |Number of requests per browser:
                         |(IE10,1)

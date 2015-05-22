@@ -1,71 +1,128 @@
 package com.boldradius.sdf.akka
 
+import akka.actor.Actor.Receive
 import akka.actor.{Props, Actor, ActorLogging}
 import com.boldradius.sdf.akka.SessionHandlingActor.Requests
+import UserStatisticsActor._
 import org.joda.time.DateTime
+
+import akka.persistence._
+import scala.concurrent.duration._
 
 import scala.annotation.tailrec
 
-//case class Request(sessionId: Long, timestamp: Long, url: String, referrer: String, browser: String)
 
 class UserStatisticsActor extends Actor with ActorLogging {
 
-  import UserStatisticsActor._
+  case class UserStats( private[UserStatisticsActor] var allRequests: List[Request] = List.empty,
+                        private[UserStatisticsActor] var requestsPerBrowser: Map[String, Int] = Map.empty.withDefaultValue(0),
+                        private[UserStatisticsActor] var requestsPerPage: Map[String, Int] = Map.empty.withDefaultValue(0),
+                        private[UserStatisticsActor] var percentPerPage: Map[String, Percent] = Map.empty,
+                        private[UserStatisticsActor] var requestsPerMinute: Map[(Hour, Minute), Int] = Map.empty.withDefaultValue(0),
+                        private[UserStatisticsActor] var landingRequests: List[Request] = List.empty,
+                        private[UserStatisticsActor] var sinkingRequests: List[Request] = List.empty,
+                        private[UserStatisticsActor] var topLandingPages: Map[String, Int] = Map.empty.withDefaultValue(0),
+                        private[UserStatisticsActor] var topSinkingPages: Map[String, Int] = Map.empty.withDefaultValue(0),
+                        private[UserStatisticsActor] var topBrowsersByUser: Map[String, Int] = Map.empty.withDefaultValue(0),
+                        private[UserStatisticsActor] var topReferrersByUser: Map[String, Int] = Map.empty.withDefaultValue(0),
+                        private[UserStatisticsActor] var totalVisitTimePerPage: Map[String, Long] = Map.empty.withDefaultValue(0)) {
 
-  private var allRequests: List[Request] = List()
+    def updated(that: UserStats): Unit = {
+      allRequests           = that.allRequests
+      requestsPerBrowser    = that.requestsPerBrowser
+      requestsPerPage       = that.requestsPerPage
+      percentPerPage        = that.percentPerPage
+      requestsPerMinute     = that.requestsPerMinute
+      landingRequests       = that.landingRequests
+      sinkingRequests       = that.sinkingRequests
+      topLandingPages       = that.topLandingPages
+      topSinkingPages       = that.topSinkingPages
+      topBrowsersByUser     = that.topBrowsersByUser
+      topReferrersByUser    = that.topReferrersByUser
+      totalVisitTimePerPage = that.totalVisitTimePerPage
+    }
+  }
 
-  // Aggregations
-  private var requestsPerBrowser: Map[String, Int] = Map.empty.withDefaultValue(0)
-  private var requestsPerPage: Map[String, Int] = Map.empty.withDefaultValue(0)
-  private var percentPerPage: Map[String, Percent] = Map.empty
-  private var requestsPerMinute: Map[(Hour, Minute), Int] = Map.empty.withDefaultValue(0)
-  private var landingRequests: List[Request] = List.empty
-  private var sinkingRequests: List[Request] = List.empty
-  private var topLandingPages: Map[String, Int] = Map.empty.withDefaultValue(0)
-  private var topSinkingPages: Map[String, Int] = Map.empty.withDefaultValue(0)
-  private var topBrowsersByUser: Map[String, Int] = Map.empty.withDefaultValue(0)
-  private var topReferrersByUser: Map[String, Int] = Map.empty.withDefaultValue(0)
+  private val state = UserStats()
 
-  private var totalVisitTimePerPage: Map[String, Long] = Map.empty.withDefaultValue(0)
+//  override def persistenceId = "user-stats-actor"
 
   val topPagesCount: Int = context.system.settings.config.getInt("akka-workshop.stats-actor.top-pages")
   val topCounts: Int = context.system.settings.config.getInt("akka-workshop.stats-actor.top-counts")
 
-  override def receive: Receive = {
-    case Requests(requests) =>
-      handleRequests(requests)
+  log.debug(s"Stat-actor running")
+
+//  import context.dispatcher
+//  context.system.scheduler.schedule(5 seconds, 3 seconds, self, PersistMsg)
+
+  /*override def receiveRecover: Receive = {
+
+    case SnapshotOffer(_, snapshot: UserStats) =>
+      log.debug(s"[ReceiveRecover] snapshot=\n$snapshot\n")
+      state.updated(snapshot)
+
+    case msg =>
+      log.debug(s"[ReceiveRecover] msg = $msg")
   }
 
-  def handleRequests(requests: List[Request]): Unit = {
+  override def receiveCommand: Receive = {
+
+    case req @ Requests(_) =>
+      log.debug(s"[ReceiveCommand] handleRequests")
+      persist(req) { req: Requests => handleRequests(state, req.list)}
+
+    case PersistMsg =>
+      log.debug(s"[ReceiveCommand] SaveSnapshot")
+      this.saveSnapshot(state)
+
+    case SaveSnapshotSuccess(metadata)         =>
+      log.debug(s"[ReceiveCommand] SaveSnapshotSuccess($metadata)")
+
+    case SaveSnapshotFailure(metadata, reason) =>
+      log.debug(s"[ReceiveCommand] SaveSnapshotFailure($metadata, $reason)")
+  }*/
+
+  override def receive: Receive = {
+    case Requests(reqs) =>
+//      handleRequests(state, reqs)
+  }
+
+  // just for testing
+  def testRequests(requests: List[Request]): Unit = {
+    handleRequests(state, requests)
+  }
+
+  // update the state
+  def handleRequests(state: UserStats, requests: List[Request]): Unit = {
     val sortedRequests = requests.sortBy(req => req.timestamp)
 
-    landingRequests = landingRequests :+ sortedRequests.head
-    sinkingRequests = sinkingRequests :+ sortedRequests.last
-    allRequests = allRequests ::: sortedRequests
+    state.landingRequests = state.landingRequests :+ sortedRequests.head
+    state.sinkingRequests = state.sinkingRequests :+ sortedRequests.last
+    state.allRequests = state.allRequests ::: sortedRequests
 
-    topLandingPages ++= top(topPagesCount, landingRequests, UserStatisticsActor.groupByUrl, UserStatisticsActor.mapToCount)
-    topSinkingPages ++= top(topPagesCount, sinkingRequests, UserStatisticsActor.groupByUrl, UserStatisticsActor.mapToCount)
+    state.topLandingPages ++= top(topPagesCount, state.landingRequests, UserStatisticsActor.groupByUrl, UserStatisticsActor.mapToCount)
+    state.topSinkingPages ++= top(topPagesCount, state.sinkingRequests, UserStatisticsActor.groupByUrl, UserStatisticsActor.mapToCount)
 
-    topBrowsersByUser ++= accumulateMapCount(topBrowsersByUser,
+    state.topBrowsersByUser ++= accumulateMapCount(state.topBrowsersByUser,
       top(topCounts, sortedRequests, UserStatisticsActor.groupByBrowser, UserStatisticsActor.mapToUserCount))
 
-    topReferrersByUser ++= accumulateMapCount(topReferrersByUser,
+    state.topReferrersByUser ++= accumulateMapCount(state.topReferrersByUser,
       top(topCounts, sortedRequests, UserStatisticsActor.groupByReferrer, UserStatisticsActor.mapToUserCount))
 
-    requestsPerBrowser ++= accumulateMapCount(requestsPerBrowser,
+    state.requestsPerBrowser ++= accumulateMapCount(state.requestsPerBrowser,
       all(sortedRequests, UserStatisticsActor.groupByBrowser, UserStatisticsActor.mapToCount))
 
     // Number of requests per minute of the day
-    requestsPerMinute ++= accumulateMapCount(requestsPerMinute,
+    state.requestsPerMinute ++= accumulateMapCount(state.requestsPerMinute,
       all(sortedRequests, UserStatisticsActor.groupByTime, UserStatisticsActor.mapToCountByTime))
 
     // Number of requests per page
-    requestsPerPage ++= accumulateMapCount(requestsPerPage,
+    state.requestsPerPage ++= accumulateMapCount(state.requestsPerPage,
         all(sortedRequests, UserStatisticsActor.groupByUrl, UserStatisticsActor.mapToCount))
-    percentPerPage ++= requestsPerPage.mapValues(size => sizeToPercent(size, allRequests.size))
+    state.percentPerPage ++= state.requestsPerPage.mapValues(size => sizeToPercent(size, state.allRequests.size))
 
     // Total visit time per Page
-    totalVisitTimePerPage ++= accumulateMapCount(totalVisitTimePerPage, visitTimePerPage(sortedRequests))
+    state.totalVisitTimePerPage ++= accumulateMapCount(state.totalVisitTimePerPage, visitTimePerPage(sortedRequests))
 
   }
 
@@ -78,15 +135,15 @@ class UserStatisticsActor extends Actor with ActorLogging {
   }
 
   def generateStats: String = {
-    val reqPerBrowser = s"Number of requests per browser:\n${requestsPerBrowser.toList.mkString("\n")}"
-    val ((busyHour, busyMin), countReqs) = requestsPerMinute.maxBy(tuple => tuple._2)
+    val reqPerBrowser = s"Number of requests per browser:\n${state.requestsPerBrowser.toList.mkString("\n")}"
+    val ((busyHour, busyMin), countReqs) = state.requestsPerMinute.maxBy(tuple => tuple._2)
     val busyTime = s"Busiest time of the day: $busyHour:$busyMin with #$countReqs requests"
-    val reqPerPage = s"Page visit distribution:\n${percentPerPage.toList.mkString("\n")}"
-    val visitTimePerPage = s"Total visit time per page:\n${totalVisitTimePerPage.mkString("\n")}"
-    val topLandingPage = s"Top 3 landing pages:\n${topLandingPages.mkString("\n")}"
-    val topSinkPage = s"Top 3 sink pages:\n${topSinkingPages.mkString("\n")}"
-    val topBrowser = s"Top 2 browsers:\n${topBrowsersByUser.mkString("\n")}"
-    val topReferr = s"Top 2 referrers:\n${topReferrersByUser.mkString("\n")}"
+    val reqPerPage = s"Page visit distribution:\n${state.percentPerPage.toList.mkString("\n")}"
+    val visitTimePerPage = s"Total visit time per page:\n${state.totalVisitTimePerPage.mkString("\n")}"
+    val topLandingPage = s"Top 3 landing pages:\n${state.topLandingPages.mkString("\n")}"
+    val topSinkPage = s"Top 3 sink pages:\n${state.topSinkingPages.mkString("\n")}"
+    val topBrowser = s"Top 2 browsers:\n${state.topBrowsersByUser.mkString("\n")}"
+    val topReferr = s"Top 2 referrers:\n${state.topReferrersByUser.mkString("\n")}"
     reqPerBrowser + "\n" +
       busyTime + "\n" +
       reqPerPage + "\n" +
@@ -128,6 +185,9 @@ class UserStatisticsActor extends Actor with ActorLogging {
 }
 
 object UserStatisticsActor {
+
+  object PersistMsg
+
   type Hour = Int
   type Minute = Int
 
