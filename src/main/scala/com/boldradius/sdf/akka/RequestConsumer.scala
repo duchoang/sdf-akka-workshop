@@ -8,7 +8,7 @@ import com.boldradius.sdf.akka.SessionHandlingActor.{Metrics, InactiveSession}
 import akka.pattern.{ask, pipe}
 
 import scala.concurrent.duration._
-import scala.concurrent.{Await, Future}
+import scala.concurrent.Future
 
 object RequestConsumer {
   def props = Props[RequestConsumer]

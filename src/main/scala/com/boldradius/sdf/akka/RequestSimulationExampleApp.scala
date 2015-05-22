@@ -25,6 +25,7 @@ object RequestSimulationExampleApp extends App {
 
   // Wait for the user to hit <enter>
   println("Hit <enter> to stop the simulation")
+  println("Type 'status' to see current user metrics")
   @tailrec
   def getInput: String = {
     StdIn.readLine() match {
