@@ -4,6 +4,7 @@ import java.util.concurrent.TimeUnit
 
 import akka.actor.Actor.Receive
 import akka.actor.{FSM, Props, ActorLogging, Actor}
+import com.boldradius.sdf.akka.RequestConsumer.GetMetrics
 import com.boldradius.sdf.akka.SessionHandlingActor._
 
 import scala.concurrent.duration.FiniteDuration
@@ -22,6 +23,12 @@ class SessionHandlingActor(id: Long) extends FSM[SessionState, SessionData] with
       setTimer("timeout", InactiveSession(id, requests), timeout)
       log.debug(s"[Active] Actor $id received this $request")
       stay() using requests.copy(list = request :: requests.list)
+
+    case Event(GetMetrics, requests: Requests) =>
+      val metrics = Metrics(requests.list.last.url, requests.list.last.browser)
+      log.debug(s"[Active] Replying with metrics: $metrics")
+      sender() ! metrics
+      stay()
 
     case Event(InactiveSession(_, _), requests: Requests) =>
       log.debug(s"[Inactive] after timeout $timeout, send InactiveSession($id) Msg to parent")
@@ -51,4 +58,6 @@ object SessionHandlingActor {
 
   sealed trait SessionData
   case class Requests(list: List[Request]) extends SessionData
+
+  case class Metrics(currentUrl: String, browser: String)
 }
